@@ -11,7 +11,7 @@ export default function Home() {
           Find the perfect job for you
         </p>
         <Link
-          href="/home"
+          href="/profile"
           className="h-12 rounded-full bg-foreground px-8 text-background transition-colors hover:opacity-90 flex items-center justify-center"
         >
           Start
@@ -20,3 +20,8 @@ export default function Home() {
     </div>
   );
 }
+
+
+
+
+
