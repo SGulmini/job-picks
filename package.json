@@ -2,6 +2,9 @@
   "name": "job-picks",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.16.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,6 +19,7 @@
     "mammoth": "^1.11.0",
     "next": "16.1.1",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "5.4.296",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "stripe": "^20.1.2"

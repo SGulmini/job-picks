@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
 
@@ -146,39 +147,20 @@ export async function POST(req: NextRequest) {
     else if (mime === "application/pdf" || name.endsWith(".pdf")) {
       ensureDOMMatrixPolyfill();
       await ensurePdfJsWorkerSrc();
-      // pdf-parse v2 exports a PDFParse class (v1 exported a function).
-      const mod: any = await import("pdf-parse");
-      const PDFParse: any = mod?.PDFParse ?? mod?.default?.PDFParse ?? mod?.default;
-
-      // v2 path
-      if (typeof PDFParse === "function") {
-        // IMPORTANT:
-        // - `disableWorker: true` can trigger PDF.js' "fake worker", which tries to import `./pdf.worker.mjs`.
-        //   In Next/Vercel this often resolves to a missing `.next/server/chunks/pdf.worker.mjs` and crashes.
-        // - Instead, we keep workers enabled and explicitly point PDF.js to the real worker in node_modules.
-        try {
-          if (typeof PDFParse.setWorker === "function") {
-            PDFParse.setWorker("pdfjs-dist/legacy/build/pdf.worker.mjs");
-          }
-        } catch {
-          // ignore; fallback below will still try our pdfjs GlobalWorkerOptions approach
-        }
-
-        const parser = new PDFParse({ data: buf });
-        const result = await parser.getText();
-        await parser.destroy?.();
-        text = result?.text || "";
-      } else {
-        // v1 fallback (in case dependency changes)
-        const pdfParseFn: any = mod?.default ?? mod;
-        if (typeof pdfParseFn !== "function") {
-          throw new Error(
-            "PDF parsing library could not be loaded. Please reinstall dependencies (npm install) and restart the dev server."
-          );
-        }
-        const parsed = await pdfParseFn(buf);
-        text = parsed?.text || "";
+      // IMPORTANT:
+      // - On Vercel, dynamic imports may not be included in the serverless bundle (output tracing).
+      //   Keep PDFParse as a static import so pdfjs-dist is always present at runtime.
+      // - Use a module-specifier workerSrc to avoid `.next/server/chunks/pdf.worker.mjs` missing paths.
+      try {
+        PDFParse.setWorker?.("pdfjs-dist/legacy/build/pdf.worker.mjs");
+      } catch {
+        // ignore
       }
+
+      const parser = new PDFParse({ data: buf });
+      const result = await parser.getText();
+      await (parser as any).destroy?.();
+      text = result?.text || "";
     }
     // DOCX
     else if (
