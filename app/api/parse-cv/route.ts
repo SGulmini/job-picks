@@ -33,24 +33,29 @@ export async function POST(req: NextRequest) {
 
       // v2 path
       if (typeof PDFParse === "function") {
-        // PDF.js in Node uses a "fake worker" and dynamically imports `GlobalWorkerOptions.workerSrc`.
-        // In Next.js (Turbopack dev), the default "./pdf.worker.mjs" becomes a missing `.next/.../pdf.worker.mjs`.
-        // Preload the worker module and set an explicit `workerSrc` to a real file:// URL in node_modules.
-        try {
-          const { createRequire } = await import("module");
-          const { pathToFileURL } = await import("url");
-          const require = createRequire(import.meta.url);
+        // In some environments (e.g. Vercel), importing pdfjs-dist modules can crash with
+        // "DOMMatrix is not defined" because those modules expect browser globals.
+        // We don't need to preload any worker when disableWorker=true, so keep this dev-only.
+        if (process.env.NODE_ENV !== "production") {
+          // PDF.js in Node uses a "fake worker" and dynamically imports `GlobalWorkerOptions.workerSrc`.
+          // In Next.js (Turbopack dev), the default "./pdf.worker.mjs" becomes a missing `.next/.../pdf.worker.mjs`.
+          // Preload the worker module and set an explicit `workerSrc` to a real file:// URL in node_modules.
+          try {
+            const { createRequire } = await import("module");
+            const { pathToFileURL } = await import("url");
+            const require = createRequire(import.meta.url);
 
-          const workerMod: any = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-          (globalThis as any).pdfjsWorker = workerMod;
+            const workerMod: any = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+            (globalThis as any).pdfjsWorker = workerMod;
 
-          const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-          const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
-          if (pdfjs?.GlobalWorkerOptions) {
-            pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+            const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+            const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+            if (pdfjs?.GlobalWorkerOptions) {
+              pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+            }
+          } catch {
+            // If this fails, pdfjs will fall back to its default workerSrc and may error in some dev setups.
           }
-        } catch {
-          // If this fails, pdfjs will fall back to its default workerSrc and may error in some dev setups.
         }
 
         // In Next.js (Turbopack dev), pdfjs' "fake worker" import can break due to module resolution.
