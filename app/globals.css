@@ -47,3 +47,88 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* --- Job Picks responsive helpers (mobile UX) --- */
+.jp-page {
+  padding: 24px;
+  font-family: system-ui;
+}
+
+.jp-topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jp-topbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.jp-two-col {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.jp-sticky {
+  position: sticky;
+  top: 16px;
+}
+
+.jp-job-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.jp-primary-action {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .jp-page {
+    padding: 14px;
+  }
+
+  .jp-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jp-topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .jp-two-col {
+    gap: 12px;
+  }
+
+  .jp-sticky {
+    position: static;
+    top: auto;
+  }
+
+  .jp-job-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .jp-job-actions > a,
+  .jp-job-actions > button {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .jp-primary-action {
+    margin-left: 0;
+    grid-column: 1 / -1;
+  }
+}

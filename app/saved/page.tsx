@@ -104,7 +104,7 @@ function readCandidateProfile(): any | null {
 export default function SavedJobsPage() {
   // Next.js production build requires useSearchParams() to be under a Suspense boundary.
   return (
-    <Suspense fallback={<main style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</main>}>
+    <Suspense fallback={<main className="jp-page">Loading…</main>}>
       <SavedJobsPageInner />
     </Suspense>
   );
@@ -266,15 +266,15 @@ function SavedJobsPageInner() {
   };
 
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui", maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+    <main className="jp-page" style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div className="jp-topbar">
         <div>
           <h1 style={{ margin: 0 }}>Saved jobs</h1>
           <p style={{ margin: "6px 0 0 0", opacity: 0.75, fontSize: 13 }}>
             Positions you saved to apply later (even on another day).
           </p>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div className="jp-topbar-actions">
           <Link
             href="/home"
             style={{
@@ -412,7 +412,7 @@ function SavedJobsPageInner() {
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                  <div className="jp-job-actions" style={{ justifyContent: "flex-end" }}>
                     <a
                       href={job.url || "#"}
                       target="_blank"
@@ -456,8 +456,8 @@ function SavedJobsPageInner() {
                         setCoverLetterLangModalOpen(true);
                       }}
                       disabled={loadingId === String(job.id)}
+                      className="jp-primary-action"
                       style={{
-                        marginLeft: "auto",
                         padding: "8px 14px",
                         borderRadius: 10,
                         border: "1px solid var(--jp-panel-border)",

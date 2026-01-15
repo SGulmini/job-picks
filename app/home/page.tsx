@@ -57,7 +57,7 @@ function stableIdFromString(prefix: string, input: string) {
 export default function HomePage() {
   // Next.js production build requires useSearchParams() to be under a Suspense boundary.
   return (
-    <Suspense fallback={<main style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</main>}>
+    <Suspense fallback={<main className="jp-page">Loading…</main>}>
       <HomePageInner />
     </Suspense>
   );
@@ -1126,7 +1126,7 @@ function HomePageInner() {
   // UI di stato (evita flash strani e rimbalzi)
   if (gate === "checking") {
     return (
-      <main style={{ padding: 24, fontFamily: "system-ui" }}>
+      <main className="jp-page">
         Loading your account...
       </main>
     );
@@ -1134,7 +1134,7 @@ function HomePageInner() {
 
   if (gate === "need_profile") {
     return (
-      <main style={{ padding: 24, fontFamily: "system-ui" }}>
+      <main className="jp-page">
         Redirecting to profile...
       </main>
     );
@@ -1142,8 +1142,8 @@ function HomePageInner() {
 
   // gate === "ready"
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main className="jp-page">
+      <div className="jp-topbar">
         <div>
           <h1 style={{ margin: 0 }}>Job Picks</h1>
           <p style={{ margin: "6px 0 0 0" }}>Signed in as: {email ?? "-"}</p>
@@ -1183,7 +1183,7 @@ function HomePageInner() {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div className="jp-topbar-actions">
           <Link
             href="/saved"
             style={{
@@ -1272,7 +1272,7 @@ function HomePageInner() {
             : "Showing 3 picks for your profile"}
         </p>
 
-        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div className="jp-two-col">
           {/* Left: today's picks */}
           <div style={{ flex: "1 1 560px", minWidth: 0 }}>
             {error && <p style={{ color: "#ef4444" }}>{error}</p>}
@@ -1367,7 +1367,7 @@ function HomePageInner() {
                       {job.description.length > 200 && "..."}
                     </div>
                   )}
-                  <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <div className="jp-job-actions" style={{ marginTop: 12 }}>
                     <a
                       href={job.url || "#"}
                       target="_blank"
@@ -1430,8 +1430,8 @@ function HomePageInner() {
                     <button
                       onClick={() => openCoverLetterLanguageModalForJob(job)}
                       disabled={coverLetterLoadingId === String(job.id)}
+                      className="jp-primary-action"
                       style={{
-                        marginLeft: "auto",
                         padding: "8px 14px",
                         borderRadius: 10,
                         border: "1px solid var(--jp-panel-border)",
@@ -1563,7 +1563,7 @@ function HomePageInner() {
 
           {/* Right: external link (sticky on desktop, stacks below on mobile) */}
           <div style={{ flex: "0 0 380px", width: "100%", maxWidth: 460 }}>
-            <div style={{ position: "sticky", top: 16 }}>
+            <div className="jp-sticky">
               <div
                 style={{
                   padding: 16,
