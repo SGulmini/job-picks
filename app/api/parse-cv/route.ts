@@ -3,6 +3,26 @@ import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
 
+export async function OPTIONS() {
+  // Some clients/environments may trigger an OPTIONS preflight. If we don't handle it,
+  // Next.js returns 405 which surfaces as "Failed to parse CV (HTTP 405)".
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "Method not allowed. Use POST with multipart/form-data." },
+    { status: 405 }
+  );
+}
+
 function compactText(s: string, max = 12000) {
   const cleaned = s.replace(/\s+/g, " ").trim();
   return cleaned.length > max ? cleaned.slice(0, max) + "…" : cleaned;
