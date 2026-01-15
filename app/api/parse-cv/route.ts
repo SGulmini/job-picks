@@ -110,6 +110,24 @@ function ensureDOMMatrixPolyfill() {
   if (!g.DOMMatrixReadOnly) g.DOMMatrixReadOnly = DOMMatrixPolyfill;
 }
 
+async function ensurePdfJsWorkerSrc() {
+  // Make pdf.js resolve its worker from node_modules (Vercel/server) instead of `.next/server/chunks/pdf.worker.mjs`.
+  // Safe to call multiple times.
+  try {
+    const { createRequire } = await import("module");
+    const { pathToFileURL } = await import("url");
+    const require = createRequire(import.meta.url);
+
+    const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    if (pdfjs?.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+    }
+  } catch {
+    // Best effort: if this fails, pdfjs will use its default worker resolution (may fail in some hosts).
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -131,39 +149,15 @@ export async function POST(req: NextRequest) {
     // PDF
     else if (mime === "application/pdf" || name.endsWith(".pdf")) {
       ensureDOMMatrixPolyfill();
+      await ensurePdfJsWorkerSrc();
       // pdf-parse v2 exports a PDFParse class (v1 exported a function).
       const mod: any = await import("pdf-parse");
       const PDFParse: any = mod?.PDFParse ?? mod?.default?.PDFParse ?? mod?.default;
 
       // v2 path
       if (typeof PDFParse === "function") {
-        // In some environments (e.g. Vercel), importing pdfjs-dist modules can crash with
-        // "DOMMatrix is not defined" because those modules expect browser globals.
-        // We don't need to preload any worker when disableWorker=true, so keep this dev-only.
-        if (process.env.NODE_ENV !== "production") {
-          // PDF.js in Node uses a "fake worker" and dynamically imports `GlobalWorkerOptions.workerSrc`.
-          // In Next.js (Turbopack dev), the default "./pdf.worker.mjs" becomes a missing `.next/.../pdf.worker.mjs`.
-          // Preload the worker module and set an explicit `workerSrc` to a real file:// URL in node_modules.
-          try {
-            const { createRequire } = await import("module");
-            const { pathToFileURL } = await import("url");
-            const require = createRequire(import.meta.url);
-
-            const workerMod: any = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-            (globalThis as any).pdfjsWorker = workerMod;
-
-            const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-            const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
-            if (pdfjs?.GlobalWorkerOptions) {
-              pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-            }
-          } catch {
-            // If this fails, pdfjs will fall back to its default workerSrc and may error in some dev setups.
-          }
-        }
-
-        // In Next.js (Turbopack dev), pdfjs' "fake worker" import can break due to module resolution.
-        // Disabling workers is safe on the server and avoids loading `pdf.worker.mjs` entirely.
+        // Disabling workers is safe on the server; we also set workerSrc above to avoid
+        // pdfjs trying to import a missing `.next/server/chunks/pdf.worker.mjs` in some hosts.
         const parser = new PDFParse({ data: buf, disableWorker: true });
         const result = await parser.getText();
         await parser.destroy?.();
