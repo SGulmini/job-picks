@@ -111,17 +111,13 @@ function ensureDOMMatrixPolyfill() {
 }
 
 async function ensurePdfJsWorkerSrc() {
-  // Make pdf.js resolve its worker from node_modules (Vercel/server) instead of `.next/server/chunks/pdf.worker.mjs`.
+  // Make pdf.js resolve its worker as a module specifier so Next/Vercel can bundle it correctly.
+  // If left as the default "./pdf.worker.mjs", it can resolve to a missing `/.next/server/chunks/pdf.worker.mjs`.
   // Safe to call multiple times.
   try {
-    const { createRequire } = await import("module");
-    const { pathToFileURL } = await import("url");
-    const require = createRequire(import.meta.url);
-
     const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
     if (pdfjs?.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+      pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/legacy/build/pdf.worker.mjs";
     }
   } catch {
     // Best effort: if this fails, pdfjs will use its default worker resolution (may fail in some hosts).
@@ -156,9 +152,19 @@ export async function POST(req: NextRequest) {
 
       // v2 path
       if (typeof PDFParse === "function") {
-        // Disabling workers is safe on the server; we also set workerSrc above to avoid
-        // pdfjs trying to import a missing `.next/server/chunks/pdf.worker.mjs` in some hosts.
-        const parser = new PDFParse({ data: buf, disableWorker: true });
+        // IMPORTANT:
+        // - `disableWorker: true` can trigger PDF.js' "fake worker", which tries to import `./pdf.worker.mjs`.
+        //   In Next/Vercel this often resolves to a missing `.next/server/chunks/pdf.worker.mjs` and crashes.
+        // - Instead, we keep workers enabled and explicitly point PDF.js to the real worker in node_modules.
+        try {
+          if (typeof PDFParse.setWorker === "function") {
+            PDFParse.setWorker("pdfjs-dist/legacy/build/pdf.worker.mjs");
+          }
+        } catch {
+          // ignore; fallback below will still try our pdfjs GlobalWorkerOptions approach
+        }
+
+        const parser = new PDFParse({ data: buf });
         const result = await parser.getText();
         await parser.destroy?.();
         text = result?.text || "";
