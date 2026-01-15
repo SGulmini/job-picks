@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -55,6 +55,15 @@ function stableIdFromString(prefix: string, input: string) {
 }
 
 export default function HomePage() {
+  // Next.js production build requires useSearchParams() to be under a Suspense boundary.
+  return (
+    <Suspense fallback={<main style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</main>}>
+      <HomePageInner />
+    </Suspense>
+  );
+}
+
+function HomePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 

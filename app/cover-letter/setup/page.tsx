@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type CvFileMeta = {
@@ -50,6 +50,20 @@ function writeCandidate(p: CandidateProfile) {
 }
 
 export default function CoverLetterSetupPage() {
+  return (
+    <Suspense
+      fallback={
+        <main style={{ padding: 24, fontFamily: "system-ui" }}>
+          Loading setup...
+        </main>
+      }
+    >
+      <CoverLetterSetupInner />
+    </Suspense>
+  );
+}
+
+function CoverLetterSetupInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 

@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function UpgradeSuccessPage() {
+  // Next.js production build requires useSearchParams() to be under a Suspense boundary.
+  return (
+    <Suspense fallback={<main style={{ padding: "40px 20px", maxWidth: 600, margin: "0 auto" }}>Loading…</main>}>
+      <UpgradeSuccessInner />
+    </Suspense>
+  );
+}
+
+function UpgradeSuccessInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -104,7 +113,7 @@ export default function UpgradeSuccessPage() {
         Welcome to Premium!
       </h1>
       <p style={{ fontSize: 16, marginBottom: 30, color: "#666" }}>
-        Your subscription is now active. You'll receive 3 personalized job recommendations every day.
+        Your subscription is now active. You'll receive up to 10 personalized job recommendations every day.
       </p>
       <Link
         href="/home"

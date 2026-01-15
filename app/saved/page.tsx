@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { extractJobMetaFromDescription } from "@/lib/jobPostingMeta";
@@ -102,6 +102,15 @@ function readCandidateProfile(): any | null {
 }
 
 export default function SavedJobsPage() {
+  // Next.js production build requires useSearchParams() to be under a Suspense boundary.
+  return (
+    <Suspense fallback={<main style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</main>}>
+      <SavedJobsPageInner />
+    </Suspense>
+  );
+}
+
+function SavedJobsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<SavedJob[]>([]);
