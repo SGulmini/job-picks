@@ -18,8 +18,17 @@ export async function OPTIONS() {
 
 export async function GET() {
   return NextResponse.json(
-    { ok: false, error: "Method not allowed. Use POST with multipart/form-data." },
-    { status: 405 }
+    {
+      ok: true,
+      endpoint: "/api/parse-cv",
+      methods: ["POST", "OPTIONS"],
+      commit:
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.VERCEL_GIT_COMMIT_REF ||
+        process.env.VERCEL_GIT_PROVIDER ||
+        "unknown",
+    },
+    { status: 200 }
   );
 }
 
