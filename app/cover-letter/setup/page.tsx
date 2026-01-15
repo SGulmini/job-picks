@@ -107,7 +107,14 @@ function CoverLetterSetupInner() {
       form.append("file", file);
       const res = await fetch("/api/parse-cv", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Failed to parse CV");
+      if (!res.ok) {
+        const parts = [
+          data?.error ? String(data.error) : `Failed to parse CV (HTTP ${res.status})`,
+          data?.details ? `Details: ${String(data.details)}` : "",
+          data?.hint ? `Hint: ${String(data.hint)}` : "",
+        ].filter(Boolean);
+        throw new Error(parts.join("\n"));
+      }
       if (!data?.cvText) throw new Error("No cvText returned");
       setCvText(String(data.cvText));
       setCvFile({

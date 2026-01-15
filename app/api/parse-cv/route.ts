@@ -126,6 +126,7 @@ async function ensurePdfJsWorkerSrc() {
 }
 
 export async function POST(req: NextRequest) {
+  let sizeBytes: number | undefined = undefined;
   try {
     const form = await req.formData();
     const file = form.get("file");
@@ -136,6 +137,7 @@ export async function POST(req: NextRequest) {
     const name = (file.name || "").toLowerCase();
     const mime = (file.type || "").toLowerCase();
     const buf = Buffer.from(await file.arrayBuffer());
+    sizeBytes = typeof (file as any).size === "number" ? (file as any).size : buf.length;
 
     let text = "";
 
@@ -157,10 +159,31 @@ export async function POST(req: NextRequest) {
         // ignore
       }
 
-      const parser = new PDFParse({ data: buf });
-      const result = await parser.getText();
-      await (parser as any).destroy?.();
-      text = result?.text || "";
+      try {
+        const parser = new PDFParse({ data: buf });
+        const result = await parser.getText();
+        await (parser as any).destroy?.();
+        text = result?.text || "";
+      } catch (e: any) {
+        // Make this error user-actionable (common causes: worker resolution, encrypted PDFs, very large files).
+        const msg = String(e?.message || e || "Failed to parse PDF");
+        const hintParts: string[] = [];
+        if (/password|encrypted|encryption/i.test(msg)) {
+          hintParts.push("This PDF appears to be password-protected. Please export an unprotected PDF or upload a DOCX.");
+        }
+        if (/worker/i.test(msg) || /pdf\.worker/i.test(msg) || /fake worker/i.test(msg)) {
+          hintParts.push("PDF worker could not be loaded on the server. Try uploading a DOCX instead.");
+        }
+        hintParts.push("If this keeps failing, try converting your CV to DOCX or plain text and upload that instead.");
+        return NextResponse.json(
+          {
+            error: "Failed to parse PDF CV",
+            details: msg.slice(0, 900),
+            hint: hintParts.join(" "),
+          },
+          { status: 500 }
+        );
+      }
     }
     // DOCX
     else if (
@@ -187,8 +210,16 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ cvText: text });
   } catch (e: any) {
+    const msg = String(e?.message || e || "Failed to parse CV");
     return NextResponse.json(
-      { error: e?.message || "Failed to parse CV" },
+      {
+        error: "Failed to parse CV",
+        details: msg.slice(0, 900),
+        hint:
+          sizeBytes && sizeBytes > 8 * 1024 * 1024
+            ? "Your file is quite large. Try uploading a smaller PDF or a DOCX."
+            : "Try uploading a DOCX or TXT instead of PDF.",
+      },
       { status: 500 }
     );
   }
