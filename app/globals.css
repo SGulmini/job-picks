@@ -3,6 +3,18 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Job Picks UI tokens (must stay readable in both light/dark) */
+  --jp-panel-bg: #ffffff;
+  --jp-panel-fg: #111827;
+  --jp-panel-border: rgba(0, 0, 0, 0.14);
+  --jp-panel-hover: rgba(0, 0, 0, 0.06);
+  --jp-panel-selected: rgba(0, 0, 0, 0.08);
+  --jp-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+
+  --jp-input-bg: #ffffff;
+  --jp-input-fg: #111827;
+  --jp-input-border: rgba(0, 0, 0, 0.18);
 }
 
 @theme inline {
@@ -16,6 +28,17 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --jp-panel-bg: #0b1220;
+    --jp-panel-fg: #f9fafb;
+    --jp-panel-border: rgba(255, 255, 255, 0.14);
+    --jp-panel-hover: rgba(255, 255, 255, 0.08);
+    --jp-panel-selected: rgba(255, 255, 255, 0.12);
+    --jp-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+
+    --jp-input-bg: #0b1220;
+    --jp-input-fg: #f9fafb;
+    --jp-input-border: rgba(255, 255, 255, 0.14);
   }
 }
 

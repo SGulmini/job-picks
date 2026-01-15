@@ -14,7 +14,6 @@ type Profile = {
   country: string;
   city?: string;
   remote?: boolean; // Whether to accept remote positions
-  subscriptionTier?: "free" | "premium"; // Subscription tier: free = 1 job, premium = 3 jobs
   // Legacy support
   seniority?: string | string[]; // For migration
   level?: string;
@@ -280,7 +279,7 @@ const COUNTRIES = [
   "Zimbabwe",
 ];
 
-export default function ProfilePage() {
+export default function EditProfilePage() {
   const router = useRouter();
 
   const [roles, setRoles] = useState<string[]>([""]); // Start with one empty role field
@@ -295,32 +294,14 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check if this is a new profile setup or edit
-  // If profile already exists and we're on /profile (not /profile/edit), redirect to home
+  // Load existing profile
   useEffect(() => {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if (raw) {
-      try {
-        const p = JSON.parse(raw) as Partial<Profile>;
-        // Check if profile is complete and valid
-        // Areas can be empty array (means all areas)
-        if (p.role && p.country && p.areas && Array.isArray(p.areas)) {
-          // Check if we're on /profile (not /profile/edit)
-          if (window.location.pathname === "/profile") {
-            router.replace("/home");
-            return;
-          }
-        }
-      } catch {
-        // Invalid profile, continue with form
-      }
+    if (!raw) {
+      // No profile found, redirect to profile setup
+      router.replace("/profile");
+      return;
     }
-  }, [router]);
-
-  // Carica eventuale profilo salvato e salva l'email quando disponibile
-  useEffect(() => {
-    const raw = localStorage.getItem(PROFILE_KEY);
-    if (!raw) return;
 
     try {
       const p = JSON.parse(raw) as Partial<Profile>;
@@ -334,11 +315,9 @@ export default function ProfilePage() {
       } else {
         setRoles([""]);
       }
-      // Support both old format (area as string) and new format (areas as array)
-      if (Array.isArray(p.areas)) {
+      if (Array.isArray(p.areas) && p.areas.length > 0) {
         setAreas(p.areas);
       } else if (typeof (p as any).area === "string") {
-        // Migrate from old format
         setAreas([(p as any).area]);
       } else {
         // Empty array means all areas
@@ -349,8 +328,6 @@ export default function ProfilePage() {
       }
       // Support experienceYears (new format) and legacy formats (seniority, level)
       if (typeof p.experienceYears === "number" && p.experienceYears >= 0) {
-        setExperienceYears(p.experienceYears);
-      } else if (typeof p.experienceYears === "number" && p.experienceYears >= 0) {
         setExperienceYears(p.experienceYears);
       } else if (typeof p.level === "string") {
         // Migrate from old level format: Junior -> 1, Mid -> 3, Senior -> 5
@@ -384,20 +361,17 @@ export default function ProfilePage() {
           }
         }
       }
-      // Load country if available
       if (typeof p.country === "string") {
         setCountry(p.country);
       }
-      // Load city if available
       if (typeof p.city === "string") {
         setCity(p.city);
       }
     } catch {
-      // se JSON rotto, lo puliamo
       localStorage.removeItem(PROFILE_KEY);
     }
 
-    // Salva l'email quando la sessione è disponibile
+    // Save email when session is available
     const saveEmail = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user?.email) {
@@ -418,7 +392,7 @@ export default function ProfilePage() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
 
   const onContinue = async (e?: React.MouseEvent | React.FormEvent) => {
     e?.preventDefault?.();
@@ -460,11 +434,7 @@ export default function ProfilePage() {
 
     try {
       localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-
-      // Debug: verifica immediata
       console.log("Saved profile:", localStorage.getItem(PROFILE_KEY));
-
-      // Redirect to home after saving
       router.push("/home");
     } catch (err) {
       console.error(err);
@@ -476,7 +446,6 @@ export default function ProfilePage() {
   // Reset city suggestions when country changes
   useEffect(() => {
     if (country) {
-      // Update city suggestions based on country
       const suggestions = CITIES_BY_COUNTRY[country] || [];
       setCitySuggestions(suggestions);
     } else {
@@ -493,9 +462,8 @@ export default function ProfilePage() {
         c.toLowerCase().includes(value.toLowerCase())
       );
       setCitySuggestions(filtered);
-      setShowSuggestions(filtered.length > 0 && filtered.length <= 20); // Show max 20 suggestions
+      setShowSuggestions(filtered.length > 0 && filtered.length <= 20);
     } else if (country && value.length === 0) {
-      // Show all suggestions when input is empty
       const allSuggestions = CITIES_BY_COUNTRY[country] || [];
       setCitySuggestions(allSuggestions);
       setShowSuggestions(false);
@@ -521,7 +489,6 @@ export default function ProfilePage() {
     setError(null);
   };
 
-
   const addRole = () => {
     setRoles([...roles, ""]);
   };
@@ -544,7 +511,6 @@ export default function ProfilePage() {
         // Remove if already selected - allow empty array (means all areas)
         return prev.filter((a) => a !== area);
       } else {
-        // Add if not selected
         return [...prev, area];
       }
     });
@@ -554,9 +520,9 @@ export default function ProfilePage() {
     <main style={{ padding: "16px 24px", fontFamily: "system-ui", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, letterSpacing: 1, opacity: 0.7 }}>JOB PICKS</div>
-        <h1 style={{ margin: "4px 0", fontSize: 24 }}>Set up your profile</h1>
+        <h1 style={{ margin: "4px 0", fontSize: 24 }}>Edit your profile</h1>
         <p style={{ margin: 0, opacity: 0.8, fontSize: 13 }}>
-          Get 2–3 relevant jobs per day. No noise. You can change this anytime.
+          Update your preferences. Changes will be saved immediately.
         </p>
       </div>
 
@@ -730,7 +696,6 @@ export default function ProfilePage() {
                   }
                 }}
                 onBlur={() => {
-                  // Delay hiding suggestions to allow clicks
                   setTimeout(() => setShowSuggestions(false), 200);
                 }}
                 placeholder="e.g. Milano, London, New York"
@@ -862,7 +827,6 @@ export default function ProfilePage() {
         {error && <p style={{ color: "red", marginTop: 10, fontSize: 13 }}>{error}</p>}
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
-          {/* IMPORTANTISSIMO: type="button" evita submit involontari/reload */}
           <button
             type="button"
             onClick={onContinue}
@@ -879,12 +843,12 @@ export default function ProfilePage() {
               fontWeight: 600,
             }}
           >
-            {saving ? "Saving..." : "Continue"}
+            {saving ? "Saving..." : "Save changes"}
           </button>
 
           <button
             type="button"
-            onClick={onReset}
+            onClick={() => router.push("/home")}
             style={{
               background: "transparent",
               border: "none",
@@ -895,7 +859,7 @@ export default function ProfilePage() {
               fontSize: 13,
             }}
           >
-            Reset profile
+            Cancel
           </button>
         </div>
       </form>
