@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import "@/lib/pdfjsServerPolyfills";
 import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
