@@ -30,6 +30,8 @@ export async function loadCandidateProfile(): Promise<CandidateProfile | null> {
     // Try Supabase first if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
     
+    console.log("[CandidateProfile] Loading profile. Has session:", !!session, "User ID:", session?.user?.id);
+    
     if (session?.user?.id) {
       const { data, error } = await supabase
         .from("candidate_profiles")
@@ -39,8 +41,17 @@ export async function loadCandidateProfile(): Promise<CandidateProfile | null> {
 
       if (error) {
         // If table doesn't exist or RLS error, log it but continue to localStorage fallback
-        console.warn("Error loading from Supabase (table might not exist yet):", error.message);
+        console.warn("[CandidateProfile] Error loading from Supabase:", error.code, error.message);
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.error("[CandidateProfile] ⚠️ TABLE DOES NOT EXIST! Please run the SQL migration script in Supabase. See SUPABASE_SETUP.md");
+        }
       } else if (data) {
+        console.log("[CandidateProfile] ✅ Loaded from Supabase:", {
+          firstName: data.first_name,
+          lastName: data.last_name,
+          hasCvText: !!data.cv_text && data.cv_text.length > 0
+        });
+        
         // Sync to localStorage as backup
         const profile: CandidateProfile = {
           firstName: data.first_name || "",
@@ -58,21 +69,31 @@ export async function loadCandidateProfile(): Promise<CandidateProfile | null> {
         // Save to localStorage as backup
         try {
           localStorage.setItem(CANDIDATE_KEY, JSON.stringify(profile));
+          console.log("[CandidateProfile] Synced to localStorage as backup");
         } catch {
           // Ignore localStorage errors
         }
         
         return profile;
+      } else {
+        console.log("[CandidateProfile] No data in Supabase, checking localStorage...");
       }
+    } else {
+      console.log("[CandidateProfile] No session, checking localStorage...");
     }
 
     // Fallback to localStorage
     const raw = localStorage.getItem(CANDIDATE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    if (raw) {
+      console.log("[CandidateProfile] ✅ Loaded from localStorage");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    }
+    
+    console.log("[CandidateProfile] ❌ No profile found in Supabase or localStorage");
+    return null;
   } catch (error) {
-    console.error("Error loading candidate profile:", error);
+    console.error("[CandidateProfile] Error loading candidate profile:", error);
     // Final fallback to localStorage
     try {
       const raw = localStorage.getItem(CANDIDATE_KEY);
@@ -89,11 +110,18 @@ export async function loadCandidateProfile(): Promise<CandidateProfile | null> {
  * Save candidate profile to Supabase (if authenticated) and localStorage (backup)
  */
 export async function saveCandidateProfile(profile: CandidateProfile): Promise<void> {
+  console.log("[CandidateProfile] Saving profile:", {
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    hasCvText: !!profile.cvText && profile.cvText.length > 0
+  });
+  
   // Always save to localStorage as backup
   try {
     localStorage.setItem(CANDIDATE_KEY, JSON.stringify(profile));
-  } catch {
-    // Ignore localStorage errors
+    console.log("[CandidateProfile] ✅ Saved to localStorage");
+  } catch (error) {
+    console.error("[CandidateProfile] Error saving to localStorage:", error);
   }
 
   // Try to save to Supabase if user is authenticated
@@ -101,6 +129,8 @@ export async function saveCandidateProfile(profile: CandidateProfile): Promise<v
     const { data: { session } } = await supabase.auth.getSession();
     
     if (session?.user?.id) {
+      console.log("[CandidateProfile] Attempting to save to Supabase for user:", session.user.id);
+      
       const { error } = await supabase
         .from("candidate_profiles")
         .upsert({
@@ -120,18 +150,22 @@ export async function saveCandidateProfile(profile: CandidateProfile): Promise<v
         });
 
       if (error) {
-        console.error("Error saving candidate profile to Supabase:", error);
+        console.error("[CandidateProfile] ❌ Error saving to Supabase:", error.code, error.message);
         // If it's a "relation does not exist" error, the table hasn't been created yet
         if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.warn("Supabase table 'candidate_profiles' does not exist. Please run the SQL migration script. See SUPABASE_SETUP.md for instructions.");
+          console.error("[CandidateProfile] ⚠️⚠️⚠️ TABLE DOES NOT EXIST! ⚠️⚠️⚠️");
+          console.error("[CandidateProfile] Please run the SQL migration script in Supabase. See SUPABASE_SETUP.md for instructions.");
+          console.error("[CandidateProfile] Without the table, data will only be saved locally and won't sync across devices!");
         }
         // Continue anyway - localStorage backup is already saved
       } else {
-        console.log("Successfully saved candidate profile to Supabase");
+        console.log("[CandidateProfile] ✅ Successfully saved to Supabase - data will sync across devices!");
       }
+    } else {
+      console.log("[CandidateProfile] No session, saved only to localStorage (won't sync across devices)");
     }
   } catch (error) {
-    console.error("Error saving candidate profile to Supabase:", error);
+    console.error("[CandidateProfile] Exception saving to Supabase:", error);
     // Continue anyway - localStorage backup is already saved
   }
 }
@@ -171,9 +205,11 @@ export async function syncCandidateProfileToSupabase(): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) {
-      console.log("No session, skipping sync");
+      console.log("[CandidateProfile] Sync: No session, skipping");
       return;
     }
+
+    console.log("[CandidateProfile] Sync: Starting sync for user:", session.user.id);
 
     // Check if Supabase already has data
     const { data: existing, error: selectError } = await supabase
@@ -182,11 +218,18 @@ export async function syncCandidateProfileToSupabase(): Promise<void> {
       .eq("user_id", session.user.id)
       .single();
 
-    if (selectError && selectError.code !== 'PGRST116') {
-      // PGRST116 = no rows returned, which is fine
-      // Other errors might mean table doesn't exist
-      console.warn("Error checking Supabase (table might not exist):", selectError.message);
-      return;
+    if (selectError) {
+      if (selectError.code === 'PGRST116') {
+        // PGRST116 = no rows returned, which is fine - means no data in Supabase yet
+        console.log("[CandidateProfile] Sync: No data in Supabase yet");
+      } else {
+        // Other errors might mean table doesn't exist
+        console.warn("[CandidateProfile] Sync: Error checking Supabase:", selectError.code, selectError.message);
+        if (selectError.code === '42P01' || selectError.message?.includes('does not exist')) {
+          console.error("[CandidateProfile] ⚠️ TABLE DOES NOT EXIST! Please run the SQL migration script.");
+        }
+        return;
+      }
     }
 
     // If Supabase has no data, try to migrate from localStorage
@@ -195,21 +238,24 @@ export async function syncCandidateProfileToSupabase(): Promise<void> {
       if (raw) {
         try {
           const profile = JSON.parse(raw) as CandidateProfile;
-          console.log("Migrating candidate profile from localStorage to Supabase");
+          console.log("[CandidateProfile] Sync: Migrating from localStorage to Supabase");
           await saveCandidateProfile(profile);
         } catch (parseError) {
-          console.error("Error parsing localStorage profile:", parseError);
+          console.error("[CandidateProfile] Sync: Error parsing localStorage profile:", parseError);
         }
+      } else {
+        console.log("[CandidateProfile] Sync: No data in localStorage either");
       }
     } else {
       // Supabase has data, sync to localStorage as backup
       // Use loadCandidateProfile which already handles this, but ensure it's called
+      console.log("[CandidateProfile] Sync: Supabase has data, syncing to localStorage");
       const profile = await loadCandidateProfile();
       if (profile) {
-        console.log("Synced candidate profile from Supabase to localStorage");
+        console.log("[CandidateProfile] Sync: ✅ Synced from Supabase to localStorage");
       }
     }
   } catch (error) {
-    console.error("Error syncing candidate profile:", error);
+    console.error("[CandidateProfile] Sync: Exception:", error);
   }
 }
