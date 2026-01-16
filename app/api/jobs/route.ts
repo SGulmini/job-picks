@@ -162,8 +162,21 @@ export function getLocationVariants(city: string): string[] {
 }
 
 // ============================================================================
-// STAGE 3: ROBUST RETRIEVAL WITH FALLBACK
+// STAGE 3: MULTI-PROVIDER JOB RETRIEVAL SYSTEM
 // ============================================================================
+
+// Common interface for all job providers
+interface JobProvider {
+  name: string;
+  fetchJobs(params: {
+    searchQuery: string;
+    city?: string;
+    country: string;
+    countryCode?: string;
+    page?: number;
+    desiredCount?: number;
+  }): Promise<{ results: any[]; count: number; provider: string }>;
+}
 
 interface AdzunaQueryParams {
   searchQuery: string;
@@ -172,11 +185,15 @@ interface AdzunaQueryParams {
   page: number;
 }
 
+// ============================================================================
+// PROVIDER 1: ADZUNA
+// ============================================================================
+
 async function fetchFromAdzuna(
   appId: string,
   appKey: string,
   params: AdzunaQueryParams
-): Promise<{ results: any[]; count: number }> {
+): Promise<{ results: any[]; count: number; provider: string }> {
   const { searchQuery, city, countryCode, page } = params;
   
   const url = new URL(`https://api.adzuna.com/v1/api/jobs/${countryCode}/search/${page}`);
@@ -216,6 +233,7 @@ async function fetchFromAdzuna(
   return {
     results: data.results || [],
     count: data.count || 0,
+    provider: "adzuna",
   };
 }
 
@@ -309,6 +327,227 @@ async function fetchJobsWithFallback(
     }
   }
 
+  return collected;
+}
+
+// ============================================================================
+// PROVIDER 2: JSEARCH API (RapidAPI - Free tier available)
+// ============================================================================
+
+interface JSearchQueryParams {
+  searchQuery: string;
+  city?: string;
+  country: string;
+  page?: number;
+}
+
+/**
+ * Fetch jobs from JSearch API (via RapidAPI)
+ * Free tier: 500 requests/month
+ * Documentation: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+ */
+async function fetchFromJSearch(
+  apiKey: string,
+  params: JSearchQueryParams
+): Promise<{ results: any[]; count: number; provider: string }> {
+  const { searchQuery, city, country, page = 1 } = params;
+  
+  try {
+    // JSearch uses RapidAPI, so we need to use their endpoint
+    const url = new URL("https://jsearch.p.rapidapi.com/search");
+    url.searchParams.set("query", searchQuery);
+    url.searchParams.set("page", page.toString());
+    url.searchParams.set("num_pages", "1");
+    
+    // Location handling - JSearch uses different format
+    if (city) {
+      url.searchParams.set("location", `${city}, ${country}`);
+    } else {
+      url.searchParams.set("location", country);
+    }
+    
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "X-RapidAPI-Key": apiKey,
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`JSearch API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // JSearch returns data in a different structure
+    const jobs = data.data || [];
+    
+    // Log first job structure for debugging (only in development)
+    if (process.env.NODE_ENV === 'development' && jobs.length > 0) {
+      const firstJob = jobs[0];
+      console.log('[JSearch API Response] First job structure:', {
+        'job_id': firstJob.job_id,
+        'job_title': firstJob.job_title,
+        'employer_name': firstJob.employer_name,
+        'job_city': firstJob.job_city,
+        'job_state': firstJob.job_state,
+        'job_country': firstJob.job_country,
+        'job_apply_link': firstJob.job_apply_link,
+        'job_google_link': firstJob.job_google_link,
+        'allKeys': Object.keys(firstJob)
+      });
+    }
+    
+    return {
+      results: jobs,
+      count: jobs.length,
+      provider: "jsearch",
+    };
+  } catch (error: any) {
+    console.error("[JSearch] Error fetching jobs:", error.message);
+    // Return empty results on error, don't throw
+    return {
+      results: [],
+      count: 0,
+      provider: "jsearch",
+    };
+  }
+}
+
+/**
+ * Normalize JSearch job format to our common format
+ */
+function normalizeJSearchJob(job: any, index: number): any {
+  return {
+    id: job.job_id || `jsearch-${index}`,
+    title: job.job_title || "Untitled Position",
+    company: {
+      display_name: job.employer_name || "Unknown Company",
+    },
+    location: {
+      display_name: [job.job_city, job.job_state, job.job_country]
+        .filter(Boolean)
+        .join(", ") || "",
+    },
+    // JSearch provides direct apply links, which is better than Adzuna redirects
+    url: job.job_apply_link || job.job_google_link || "#",
+    redirect_url: job.job_apply_link || job.job_google_link || "#",
+    description: job.job_description || job.job_highlights?.summary || "",
+    salary_min: job.job_min_salary,
+    salary_max: job.job_max_salary,
+    created: job.job_posted_at_datetime_utc || job.job_posted_at_timestamp,
+    // Store original for debugging
+    _source: "jsearch",
+  };
+}
+
+// ============================================================================
+// MULTI-PROVIDER FETCH FUNCTION
+// ============================================================================
+
+/**
+ * Fetch jobs from multiple providers and merge results
+ */
+async function fetchJobsFromMultipleProviders(
+  roles: string[],
+  country: string,
+  city: string | null,
+  desiredCount: number = 50,
+  excludeIds?: Set<string>
+): Promise<any[]> {
+  const collected: any[] = [];
+  const seen = new Set<string>();
+  
+  const jobKey = (j: any): string => {
+    return (
+      j?.id?.toString() ||
+      j?.redirect_url ||
+      j?.url ||
+      `${j?.title || ""}::${j?.company?.display_name || ""}::${j?.location?.display_name || ""}`
+    );
+  };
+  
+  const addResults = (results: any[], provider: string) => {
+    for (const j of results) {
+      const k = jobKey(j);
+      if (!k) continue;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      collected.push(j);
+      if (collected.length >= desiredCount) return;
+    }
+  };
+  
+  const primaryRole = roles[0];
+  const searchQuery = buildSearchQuery(roles);
+  const countryCode = getCountryCode(country);
+  const normalizedCity = city && city.toLowerCase() !== "remote" 
+    ? normalizeCityForAdzuna(city) 
+    : null;
+  
+  // Fetch from Adzuna (primary provider)
+  const adzunaAppId = process.env.ADZUNA_APP_ID;
+  const adzunaAppKey = process.env.ADZUNA_APP_KEY;
+  
+  if (adzunaAppId && adzunaAppKey) {
+    try {
+      const adzunaResults = await fetchFromAdzuna(adzunaAppId, adzunaAppKey, {
+        searchQuery,
+        city: normalizedCity || undefined,
+        countryCode,
+        page: 1,
+      });
+      
+      // Filter excluded IDs
+      const filtered = adzunaResults.results.filter((j: any) => {
+        const id = j?.id?.toString?.() ? j.id.toString() : null;
+        return !(excludeIds && id && excludeIds.has(id));
+      });
+      
+      addResults(filtered, "adzuna");
+      console.log(`[Multi-Provider] Added ${filtered.length} jobs from Adzuna`);
+    } catch (error: any) {
+      console.error("[Multi-Provider] Adzuna error:", error.message);
+    }
+  }
+  
+  // Fetch from JSearch (secondary provider) if we need more results
+  if (collected.length < desiredCount) {
+    const jsearchApiKey = process.env.JSEARCH_API_KEY;
+    
+    if (jsearchApiKey) {
+      try {
+        const jsearchResults = await fetchFromJSearch(jsearchApiKey, {
+          searchQuery,
+          city: normalizedCity || undefined,
+          country,
+          page: 1,
+        });
+        
+        // Normalize JSearch format to match Adzuna format
+        const normalized = jsearchResults.results.map((job: any, idx: number) => 
+          normalizeJSearchJob(job, idx)
+        );
+        
+        // Filter excluded IDs and duplicates
+        const filtered = normalized.filter((j: any) => {
+          const id = j?.id?.toString?.() ? j.id.toString() : null;
+          if (excludeIds && id && excludeIds.has(id)) return false;
+          
+          // Check if already seen
+          const k = jobKey(j);
+          return !seen.has(k);
+        });
+        
+        addResults(filtered, "jsearch");
+        console.log(`[Multi-Provider] Added ${filtered.length} jobs from JSearch`);
+      } catch (error: any) {
+        console.error("[Multi-Provider] JSearch error:", error.message);
+      }
+    }
+  }
+  
   return collected;
 }
 
@@ -498,17 +737,35 @@ export async function GET(request: Request) {
             .filter((x) => x.length > 0)
         )
       : undefined;
-    const jobs = await fetchJobsWithFallback(
-      appId,
-      appKey,
-      allRoles,
-      country,
-      city,
-      desiredCount,
-      excludeIds
-    );
-
-    console.log(`[SCORING] Retrieved ${jobs.length} jobs from Adzuna`);
+    
+    // Try multi-provider fetch first (if JSearch is configured)
+    // Otherwise fall back to Adzuna-only
+    const jsearchApiKey = process.env.JSEARCH_API_KEY;
+    let jobs: any[];
+    
+    if (jsearchApiKey) {
+      // Use multi-provider fetch
+      jobs = await fetchJobsFromMultipleProviders(
+        allRoles,
+        country,
+        city,
+        desiredCount,
+        excludeIds
+      );
+      console.log(`[SCORING] Retrieved ${jobs.length} jobs from multiple providers`);
+    } else {
+      // Fall back to Adzuna-only (original behavior)
+      jobs = await fetchJobsWithFallback(
+        appId,
+        appKey,
+        allRoles,
+        country,
+        city,
+        desiredCount,
+        excludeIds
+      );
+      console.log(`[SCORING] Retrieved ${jobs.length} jobs from Adzuna`);
+    }
 
     // STAGE 2: RANKING
     const rolesLower = allRoles.map(r => r.toLowerCase());
