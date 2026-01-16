@@ -163,14 +163,48 @@ export async function POST(req: NextRequest) {
     // PDF - Use flexible detection (don't rely strictly on mime type)
     else if (name.endsWith(".pdf") || mime.includes("pdf") || buf.slice(0, 4).toString() === "%PDF") {
       try {
-        // Use pdf-parse which is stable and works in Node.js/serverless
-        // Import dynamically to handle ESM properly
+        // Import pdf-parse dynamically to handle ESM/CJS interop in production
         const pdfParseModule = await import("pdf-parse");
-        // pdf-parse exports as default in CommonJS, but may be named in ESM
-        const PDFParse = (pdfParseModule as any).default || pdfParseModule;
+        
+        // Handle both ESM default export and CommonJS module.exports
+        // After minification, the structure might be different
+        let PDFParse: any = null;
+        
+        // Try multiple ways to get the function
+        if (typeof pdfParseModule === "function") {
+          PDFParse = pdfParseModule;
+        } else if (typeof (pdfParseModule as any).default === "function") {
+          PDFParse = (pdfParseModule as any).default;
+        } else if (typeof pdfParseModule === "object" && pdfParseModule !== null) {
+          // Try to find a function in the module
+          const keys = Object.keys(pdfParseModule);
+          for (const key of keys) {
+            const value = (pdfParseModule as any)[key];
+            if (typeof value === "function") {
+              PDFParse = value;
+              break;
+            }
+          }
+        }
+        
+        // Debug logging (one-time in production)
+        if (process.env.NODE_ENV === "production" && !(globalThis as any).__pdfParseDebugged) {
+          console.log("[PDF Parse Debug] typeof pdfParseModule:", typeof pdfParseModule);
+          console.log("[PDF Parse Debug] pdfParseModule keys:", Object.keys(pdfParseModule));
+          console.log("[PDF Parse Debug] typeof PDFParse:", typeof PDFParse);
+          console.log("[PDF Parse Debug] file size:", sizeBytes, "bytes");
+          (globalThis as any).__pdfParseDebugged = true;
+        }
+        
+        // Verify PDFParse is a function
+        if (typeof PDFParse !== "function") {
+          throw new Error(
+            `pdf-parse import is not a function. Got type: ${typeof PDFParse}, module keys: ${Object.keys(pdfParseModule).join(", ")}`
+          );
+        }
         
         // Parse PDF using pdf-parse
-        // pdf-parse accepts Buffer directly, which we already have
+        // pdf-parse accepts Buffer directly
         const data = await PDFParse(buf);
         
         // Extract text from the parsed PDF
@@ -192,6 +226,8 @@ export async function POST(req: NextRequest) {
           hintParts.push("PDF parsing service is temporarily unavailable. Please try uploading a DOCX instead.");
         } else if (/corrupted|invalid|malformed/i.test(msg)) {
           hintParts.push("This PDF appears to be corrupted or invalid. Please try a different PDF file.");
+        } else if (/is not a function/i.test(msg)) {
+          hintParts.push("PDF parser configuration error. Please try uploading a DOCX instead.");
         } else {
           hintParts.push("Failed to parse PDF. Please try converting your CV to DOCX or plain text and upload that instead.");
         }
