@@ -71,6 +71,15 @@ function HomePageInner() {
   const [email, setEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
+  // Helper function to check if we're logging out (defined once, used multiple times)
+  const isLoggingOut = useCallback(() => {
+    const ssFlag = sessionStorage.getItem('jobpicks_logging_out');
+    const lsFlag = localStorage.getItem('jobpicks_logging_out');
+    const cookieFlag = document.cookie.includes('jobpicks_logging_out=');
+    const urlFlag = new URLSearchParams(window.location.search).get('logout');
+    return !!(ssFlag || lsFlag || cookieFlag || urlFlag);
+  }, []);
+
   // Sync candidate profile from Supabase when page loads
   useEffect(() => {
     const syncProfile = async () => {
@@ -836,13 +845,17 @@ function HomePageInner() {
     let cancelled = false;
 
     const run = async () => {
-      // Don't run if we're logging out (check both storage locations)
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' || 
-          localStorage.getItem('jobpicks_logging_out') === 'true') {
-        // If we're on login page, clear the flag
+      // Don't run if we're logging out (check all storage locations and URL)
+      if (isLoggingOut()) {
+        // If we're on login page, clear all flags
         if (window.location.pathname.includes('/login')) {
           sessionStorage.removeItem('jobpicks_logging_out');
           localStorage.removeItem('jobpicks_logging_out');
+          document.cookie = 'jobpicks_logging_out=; path=/; max-age=0';
+          // Clean URL
+          const url = new URL(window.location.href);
+          url.searchParams.delete('logout');
+          window.history.replaceState({}, '', url.toString());
         }
         return;
       }
@@ -890,9 +903,7 @@ function HomePageInner() {
 
       // Se ancora non c'è sessione, aspetta un po' e riprova (per gestire il caso del magic link)
       // MA solo se non siamo sulla pagina login e non stiamo facendo logout
-      if (!session && !window.location.pathname.includes('/login') && 
-          sessionStorage.getItem('jobpicks_logging_out') !== 'true' &&
-          localStorage.getItem('jobpicks_logging_out') !== 'true') {
+      if (!session && !window.location.pathname.includes('/login') && !isLoggingOut()) {
         await new Promise(resolve => setTimeout(resolve, 500));
         session = (await supabase.auth.getSession()).data.session;
         if (!session) {
@@ -905,9 +916,8 @@ function HomePageInner() {
 
       if (cancelled) return;
       
-      // Don't proceed if we're logging out (check both storage locations)
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' ||
-          localStorage.getItem('jobpicks_logging_out') === 'true') {
+      // Don't proceed if we're logging out (check all storage locations and URL)
+      if (isLoggingOut()) {
         return;
       }
 
@@ -941,9 +951,7 @@ function HomePageInner() {
         setSubscriptionTier(tier);
       } else {
         // Don't restore from localStorage if we're on login page or logging out
-        if (!window.location.pathname.includes('/login') &&
-            sessionStorage.getItem('jobpicks_logging_out') !== 'true' &&
-            localStorage.getItem('jobpicks_logging_out') !== 'true') {
+        if (!window.location.pathname.includes('/login') && !isLoggingOut()) {
           const savedEmail = localStorage.getItem('jobpicks_user_email');
           if (savedEmail) {
             setEmail(savedEmail);
@@ -1071,7 +1079,11 @@ function HomePageInner() {
     updateUserInfo();
 
     // Polling periodico per recuperare la sessione (utile se c'è un delay)
+    // BUT: Don't poll if we're logging out
     const intervalId = setInterval(() => {
+      if (isLoggingOut()) {
+        return; // Don't update if logging out
+      }
       if (!email) {
         updateUserInfo();
       }
@@ -1080,17 +1092,17 @@ function HomePageInner() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Don't restore session if we're logging out (check both storage locations)
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' || 
-          localStorage.getItem('jobpicks_logging_out') === 'true') {
+      // Don't restore session if we're logging out (check all storage locations)
+      if (isLoggingOut()) {
         return;
       }
       
       // Don't restore on SIGNED_OUT event
       if (event === 'SIGNED_OUT') {
-        // Clear the flag when we receive SIGNED_OUT
+        // Clear all flags when we receive SIGNED_OUT
         sessionStorage.removeItem('jobpicks_logging_out');
         localStorage.removeItem('jobpicks_logging_out');
+        document.cookie = 'jobpicks_logging_out=; path=/; max-age=0';
         return;
       }
       
@@ -1112,7 +1124,7 @@ function HomePageInner() {
         setSubscriptionTier(tier);
       } else {
         // Se la sessione è null, prova a recuperarla solo se non stiamo facendo logout
-        if (sessionStorage.getItem('jobpicks_logging_out') !== 'true') {
+        if (!isLoggingOut()) {
           updateUserInfo();
         }
       }
@@ -1154,8 +1166,16 @@ function HomePageInner() {
   async function onLogout() {
     try {
       // Set a flag to prevent auto-restore after logout (use both sessionStorage and localStorage for reliability)
-      sessionStorage.setItem('jobpicks_logging_out', 'true');
-      localStorage.setItem('jobpicks_logging_out', 'true');
+      // Use a timestamp to make it unique and harder to bypass
+      const logoutTimestamp = Date.now().toString();
+      sessionStorage.setItem('jobpicks_logging_out', logoutTimestamp);
+      localStorage.setItem('jobpicks_logging_out', logoutTimestamp);
+      
+      // Also set a cookie as additional safeguard (works better on mobile)
+      // Use longer expiration on mobile
+      const isMobileCookie = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const cookieMaxAge = isMobileCookie ? 30 : 10;
+      document.cookie = `jobpicks_logging_out=${logoutTimestamp}; path=/; max-age=${cookieMaxAge}; SameSite=Strict`;
       
       // Clear Supabase session with global scope to clear all sessions
       const { error } = await supabase.auth.signOut({ scope: 'global' });
@@ -1167,19 +1187,56 @@ function HomePageInner() {
       // Clear all localStorage data that might cause auto-login
       localStorage.removeItem('jobpicks_user_email');
       
-      // Clear sessionStorage flag after a delay
+      // Detect mobile for longer delays
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      // Wait longer on mobile to ensure signOut completes and all listeners have processed
+      // Mobile browsers need more time to process storage operations and event handlers
+      const waitTime = isMobile ? 1000 : 500;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      
+      // Double-check that session is actually cleared
+      const { data: { session: verifySession } } = await supabase.auth.getSession();
+      if (verifySession) {
+        // If session still exists, try signOut again
+        console.warn("Session still exists after logout, retrying...");
+        await supabase.auth.signOut({ scope: 'global' });
+        await new Promise(resolve => setTimeout(resolve, isMobile ? 500 : 300));
+      }
+      
+      // Clear sessionStorage flag after a longer delay (mobile needs more time)
+      const clearDelay = isMobile ? 10000 : 5000;
       setTimeout(() => {
         sessionStorage.removeItem('jobpicks_logging_out');
         localStorage.removeItem('jobpicks_logging_out');
-      }, 2000);
+        // Clear cookie
+        document.cookie = 'jobpicks_logging_out=; path=/; max-age=0';
+      }, clearDelay);
       
       // Force a hard redirect to login to prevent any useEffect from interfering
-      // Add a timestamp to prevent cache issues
-      window.location.href = `/login?t=${Date.now()}`;
+      // Add a timestamp and logout flag to prevent cache issues
+      // Use replace on mobile for better reliability
+      const redirectUrl = `/login?logout=${logoutTimestamp}&t=${Date.now()}`;
+      if (isMobile || window.location.replace) {
+        window.location.replace(redirectUrl);
+      } else {
+        window.location.href = redirectUrl;
+      }
     } catch (error) {
       console.error("Error during logout:", error);
       // Even if there's an error, try to redirect
-      window.location.href = `/login?t=${Date.now()}`;
+      const logoutTimestamp = Date.now().toString();
+      const isMobileError = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      localStorage.setItem('jobpicks_logging_out', logoutTimestamp);
+      sessionStorage.setItem('jobpicks_logging_out', logoutTimestamp);
+      document.cookie = `jobpicks_logging_out=${logoutTimestamp}; path=/; max-age=30; SameSite=Strict`;
+      
+      const redirectUrl = `/login?logout=${logoutTimestamp}&t=${Date.now()}`;
+      if (isMobileError || window.location.replace) {
+        window.location.replace(redirectUrl);
+      } else {
+        window.location.href = redirectUrl;
+      }
     }
   }
 

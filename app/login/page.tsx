@@ -16,24 +16,54 @@ export default function LoginPage() {
   // Redirect if already authenticated: always go to /home first.
   // /home will redirect to /profile only if the profile is missing/invalid.
   useEffect(() => {
-    // Clear logout flag when on login page (check both storage locations)
+    // Helper function to check if we're logging out
+    const isLoggingOut = () => {
+      const ssFlag = sessionStorage.getItem('jobpicks_logging_out');
+      const lsFlag = localStorage.getItem('jobpicks_logging_out');
+      const cookieFlag = document.cookie.includes('jobpicks_logging_out=');
+      const urlFlag = new URLSearchParams(window.location.search).get('logout');
+      return !!(ssFlag || lsFlag || cookieFlag || urlFlag);
+    };
+    
+    // Clear logout flags when on login page (check all storage locations)
     sessionStorage.removeItem('jobpicks_logging_out');
     localStorage.removeItem('jobpicks_logging_out');
+    document.cookie = 'jobpicks_logging_out=; path=/; max-age=0';
     
-    // Add a small delay to ensure logout has completed
+    // Clean URL if it has logout parameter
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('logout')) {
+      url.searchParams.delete('logout');
+      window.history.replaceState({}, '', url.toString());
+    }
+    
+    // Add a longer delay on mobile to ensure logout has completed
+    // Mobile browsers can be slower to process storage operations
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const delay = isMobile ? 1500 : 600; // Longer delay on mobile
+    
     const checkSession = async () => {
-      // Wait a bit to ensure any logout operations have completed
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Wait to ensure any logout operations have completed (longer on mobile)
+      await new Promise(resolve => setTimeout(resolve, delay));
       
-      // Don't redirect if we just logged out (check both storage locations)
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' ||
-          localStorage.getItem('jobpicks_logging_out') === 'true') {
+      // Don't redirect if we just logged out (check all storage locations)
+      if (isLoggingOut()) {
+        // Clear any remaining flags after a bit more time
+        setTimeout(() => {
+          sessionStorage.removeItem('jobpicks_logging_out');
+          localStorage.removeItem('jobpicks_logging_out');
+          document.cookie = 'jobpicks_logging_out=; path=/; max-age=0';
+        }, isMobile ? 2000 : 1000);
         return;
       }
       
+      // Double-check session is actually cleared before redirecting
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        router.replace("/home");
+        // Only redirect if we're not logging out
+        if (!isLoggingOut()) {
+          router.replace("/home");
+        }
       }
     };
     
