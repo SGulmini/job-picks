@@ -36,6 +36,14 @@ export default function LoginPage() {
         });
 
         if (!error) {
+          // Sync candidate profile from localStorage to Supabase (if exists)
+          try {
+            const { syncCandidateProfileToSupabase } = await import("@/lib/candidateProfile");
+            await syncCandidateProfileToSupabase();
+          } catch (error) {
+            console.error("Error syncing candidate profile:", error);
+            // Continue anyway - not critical
+          }
           router.replace("/home");
         }
       }
@@ -137,6 +145,15 @@ export default function LoginPage() {
           setError(signInError.message);
           setLoading(false);
           return;
+        }
+
+        // Sync candidate profile from localStorage to Supabase (if exists)
+        try {
+          const { syncCandidateProfileToSupabase } = await import("@/lib/candidateProfile");
+          await syncCandidateProfileToSupabase();
+        } catch (error) {
+          console.error("Error syncing candidate profile:", error);
+          // Continue anyway - not critical
         }
 
         // Success: always go to /home first.

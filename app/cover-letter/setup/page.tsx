@@ -1,29 +1,8 @@
 "use client";
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-
-type CvFileMeta = {
-  name: string;
-  size: number;
-  type: string;
-  uploadedAt: string;
-};
-
-type CandidateProfile = {
-  firstName: string;
-  lastName: string;
-  phone: string;
-  addressLine1: string; // street + number
-  zip: string;
-  city: string;
-  country: string;
-  cvText: string;
-  cvFile?: CvFileMeta | null;
-  updatedAt: string;
-};
-
-const CANDIDATE_KEY = "jobPicks_candidate_v1";
+import { loadCandidateProfile, saveCandidateProfile, type CandidateProfile, type CvFileMeta } from "@/lib/candidateProfile";
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -32,21 +11,6 @@ function formatBytes(bytes: number) {
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   const val = bytes / Math.pow(k, i);
   return `${val.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
-}
-
-function readCandidate(): CandidateProfile | null {
-  try {
-    const raw = localStorage.getItem(CANDIDATE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCandidate(p: CandidateProfile) {
-  localStorage.setItem(CANDIDATE_KEY, JSON.stringify(p));
 }
 
 export default function CoverLetterSetupPage() {
@@ -71,21 +35,38 @@ function CoverLetterSetupInner() {
   const jobId = searchParams.get("jobId") || "";
   const lang = searchParams.get("lang") || "";
 
-  const existing = useMemo(() => readCandidate(), []);
-
-  const [firstName, setFirstName] = useState(existing?.firstName || "");
-  const [lastName, setLastName] = useState(existing?.lastName || "");
-  const [phone, setPhone] = useState(existing?.phone || "");
-  const [addressLine1, setAddressLine1] = useState(existing?.addressLine1 || "");
-  const [zip, setZip] = useState(existing?.zip || "");
-  const [city, setCity] = useState(existing?.city || "");
-  const [country, setCountry] = useState(existing?.country || "");
-  const [cvText, setCvText] = useState(existing?.cvText || "");
-  const [cvFile, setCvFile] = useState<CvFileMeta | null>(existing?.cvFile || null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [zip, setZip] = useState("");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
+  const [cvText, setCvText] = useState("");
+  const [cvFile, setCvFile] = useState<CvFileMeta | null>(null);
   const [showCvText, setShowCvText] = useState(false);
   const [loadingCv, setLoadingCv] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Load existing profile from Supabase/localStorage
+  useEffect(() => {
+    loadCandidateProfile().then((existing) => {
+      if (existing) {
+        setFirstName(existing.firstName || "");
+        setLastName(existing.lastName || "");
+        setPhone(existing.phone || "");
+        setAddressLine1(existing.addressLine1 || "");
+        setZip(existing.zip || "");
+        setCity(existing.city || "");
+        setCountry(existing.country || "");
+        setCvText(existing.cvText || "");
+        setCvFile(existing.cvFile || null);
+      }
+      setLoadingProfile(false);
+    });
+  }, []);
 
   // If we already have everything and user landed here from Generate, allow one-click continue
   const canContinue = Boolean(
@@ -130,7 +111,7 @@ function CoverLetterSetupInner() {
     }
   }
 
-  function onSave() {
+  async function onSave() {
     setError(null);
     if (!canContinue) {
       setError("Please fill all fields and upload your CV.");
@@ -150,12 +131,16 @@ function CoverLetterSetupInner() {
       updatedAt: new Date().toISOString(),
     };
 
-    writeCandidate(candidate);
-
-    const url = new URL(returnTo, window.location.origin);
-    if (jobId) url.searchParams.set("generateCoverLetterFor", jobId);
-    if (jobId && lang) url.searchParams.set("generateCoverLetterLang", lang);
-    router.push(url.pathname + (url.search ? url.search : ""));
+    try {
+      await saveCandidateProfile(candidate);
+      
+      const url = new URL(returnTo, window.location.origin);
+      if (jobId) url.searchParams.set("generateCoverLetterFor", jobId);
+      if (jobId && lang) url.searchParams.set("generateCoverLetterLang", lang);
+      router.push(url.pathname + (url.search ? url.search : ""));
+    } catch (e: any) {
+      setError(e?.message || "Failed to save profile. Please try again.");
+    }
   }
 
   return (

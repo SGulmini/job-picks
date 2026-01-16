@@ -62,43 +62,14 @@ function writeCoverLetterCache(cache: CoverLetterCache) {
   }
 }
 
-function hasCandidateProfile(): boolean {
-  try {
-    const raw = localStorage.getItem(CANDIDATE_KEY);
-    if (!raw) return false;
-    const c = JSON.parse(raw);
-    return Boolean(
-      c &&
-        typeof c.firstName === "string" &&
-        c.firstName.trim() &&
-        typeof c.lastName === "string" &&
-        c.lastName.trim() &&
-        typeof c.phone === "string" &&
-        c.phone.trim() &&
-        typeof c.addressLine1 === "string" &&
-        c.addressLine1.trim() &&
-        typeof c.zip === "string" &&
-        c.zip.trim() &&
-        typeof c.city === "string" &&
-        c.city.trim() &&
-        typeof c.country === "string" &&
-        c.country.trim() &&
-        typeof c.cvText === "string" &&
-        c.cvText.trim()
-    );
-  } catch {
-    return false;
-  }
+async function hasCandidateProfile(): Promise<boolean> {
+  const { hasCandidateProfile: check } = await import("@/lib/candidateProfile");
+  return check();
 }
 
-function readCandidateProfile(): any | null {
-  try {
-    const raw = localStorage.getItem(CANDIDATE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+async function readCandidateProfile(): Promise<any | null> {
+  const { loadCandidateProfile } = await import("@/lib/candidateProfile");
+  return loadCandidateProfile();
 }
 
 export default function SavedJobsPage() {
@@ -165,7 +136,8 @@ function SavedJobsPageInner() {
     const id = String(job.id);
     setErrorById((p) => ({ ...p, [id]: "" }));
 
-    if (!hasCandidateProfile()) {
+    const hasProfile = await hasCandidateProfile();
+    if (!hasProfile) {
       router.push(
         `/cover-letter/setup?returnTo=${encodeURIComponent("/saved")}&jobId=${encodeURIComponent(id)}&lang=${encodeURIComponent(preferredLanguage)}`
       );
@@ -182,6 +154,7 @@ function SavedJobsPageInner() {
     try {
       const profileStr = localStorage.getItem("jobProfile");
       const profile = profileStr ? JSON.parse(profileStr) : null;
+      const candidate = await readCandidateProfile();
 
       const res = await fetch("/api/cover-letter", {
         method: "POST",
@@ -196,7 +169,7 @@ function SavedJobsPageInner() {
             description: job.description,
           },
           profile,
-          candidate: readCandidateProfile(),
+          candidate,
           preferredLanguage,
         }),
       });

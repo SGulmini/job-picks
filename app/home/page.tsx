@@ -290,43 +290,14 @@ function HomePageInner() {
     }
   }, []);
 
-  const hasCandidateProfile = useCallback((): boolean => {
-    try {
-      const raw = localStorage.getItem(CANDIDATE_KEY);
-      if (!raw) return false;
-      const c = JSON.parse(raw);
-      return Boolean(
-        c &&
-          typeof c.firstName === "string" &&
-          c.firstName.trim() &&
-          typeof c.lastName === "string" &&
-          c.lastName.trim() &&
-          typeof c.phone === "string" &&
-          c.phone.trim() &&
-          typeof c.addressLine1 === "string" &&
-          c.addressLine1.trim() &&
-          typeof c.zip === "string" &&
-          c.zip.trim() &&
-          typeof c.city === "string" &&
-          c.city.trim() &&
-          typeof c.country === "string" &&
-          c.country.trim() &&
-          typeof c.cvText === "string" &&
-          c.cvText.trim()
-      );
-    } catch {
-      return false;
-    }
+  const hasCandidateProfile = useCallback(async (): Promise<boolean> => {
+    const { hasCandidateProfile: check } = await import("@/lib/candidateProfile");
+    return check();
   }, []);
 
-  const readCandidateProfile = useCallback((): any | null => {
-    try {
-      const raw = localStorage.getItem(CANDIDATE_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
+  const readCandidateProfile = useCallback(async (): Promise<any | null> => {
+    const { loadCandidateProfile } = await import("@/lib/candidateProfile");
+    return loadCandidateProfile();
   }, []);
 
   // Hydrate the external-job panel from the last draft (so pasting survives refresh/setup redirect)
@@ -626,7 +597,8 @@ function HomePageInner() {
     setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
 
     // First-time setup gate
-    if (!hasCandidateProfile()) {
+    const hasProfile = await hasCandidateProfile();
+    if (!hasProfile) {
       router.push(
         `/cover-letter/setup?returnTo=${encodeURIComponent("/home")}&jobId=${encodeURIComponent(jobId)}&lang=${encodeURIComponent(preferredLanguage)}`
       );
@@ -650,6 +622,7 @@ function HomePageInner() {
 
     setCoverLetterLoadingId(jobId);
     try {
+      const candidate = await readCandidateProfile();
       const res = await fetch("/api/cover-letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -663,7 +636,7 @@ function HomePageInner() {
             description: job.description,
           },
           profile: parsedProfile,
-          candidate: readCandidateProfile(),
+          candidate,
           preferredLanguage,
         }),
       });
