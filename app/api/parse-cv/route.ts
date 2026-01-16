@@ -168,14 +168,19 @@ export async function POST(req: NextRequest) {
     else if (name.endsWith(".pdf") || mime.includes("pdf") || buf.slice(0, 4).toString() === "%PDF") {
       try {
         // Load pdf-parse via CommonJS require (stable for Vercel production)
+        // Use Node's real require via createRequire to avoid Next.js bundling
         const mod = require("pdf-parse");
-        // Handle both { default: fn } and direct export
-        const pdfParse = mod?.default ?? mod;
         
-        // Fail fast if not a function
-        if (typeof pdfParse !== "function") {
+        // Explicitly check all known export shapes (no heuristics)
+        const pdfParse =
+          (typeof mod === "function" ? mod : null) ??
+          (typeof mod?.default === "function" ? mod.default : null) ??
+          (typeof mod?.pdfParse === "function" ? mod.pdfParse : null);
+        
+        // Fail fast if not callable
+        if (!pdfParse) {
           throw new Error(
-            `pdf-parse require is not a function. Got type: ${typeof pdfParse}, module type: ${typeof mod}, has default: ${!!mod?.default}`
+            `pdf-parse not callable. typeof mod=${typeof mod}, keys=${Object.keys(mod || {}).join(",")}`
           );
         }
         
