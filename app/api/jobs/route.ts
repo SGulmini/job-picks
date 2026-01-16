@@ -679,7 +679,9 @@ export async function GET(request: Request) {
         title,
         company: job.company?.display_name || "Unknown Company",
         location,
-        url: job.redirect_url || job.url || "#",
+        // Prefer direct URL (job.url) over redirect_url to go directly to the job posting
+        // redirect_url passes through Adzuna for tracking, but direct URL is better UX
+        url: job.url || job.redirect_url || "#",
         description: job.description || "",
         salaryMin: job.salary_min,
         salaryMax: job.salary_max,
