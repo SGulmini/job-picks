@@ -16,10 +16,18 @@ export default function LoginPage() {
   // Redirect if already authenticated: always go to /home first.
   // /home will redirect to /profile only if the profile is missing/invalid.
   useEffect(() => {
+    // Clear logout flag when on login page
+    sessionStorage.removeItem('jobpicks_logging_out');
+    
     // Add a small delay to ensure logout has completed
     const checkSession = async () => {
       // Wait a bit to ensure any logout operations have completed
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Don't redirect if we just logged out
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true') {
+        return;
+      }
       
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {

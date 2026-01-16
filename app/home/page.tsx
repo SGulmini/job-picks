@@ -836,6 +836,11 @@ function HomePageInner() {
     let cancelled = false;
 
     const run = async () => {
+      // Don't run if we're logging out
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true') {
+        return;
+      }
+      
       setGate("checking");
       setError(null);
 
@@ -878,8 +883,8 @@ function HomePageInner() {
       }
 
       // Se ancora non c'è sessione, aspetta un po' e riprova (per gestire il caso del magic link)
-      // MA solo se non siamo sulla pagina login (per evitare loop dopo logout)
-      if (!session && !window.location.pathname.includes('/login')) {
+      // MA solo se non siamo sulla pagina login e non stiamo facendo logout
+      if (!session && !window.location.pathname.includes('/login') && sessionStorage.getItem('jobpicks_logging_out') !== 'true') {
         await new Promise(resolve => setTimeout(resolve, 500));
         session = (await supabase.auth.getSession()).data.session;
         if (!session) {
@@ -891,6 +896,11 @@ function HomePageInner() {
       }
 
       if (cancelled) return;
+      
+      // Don't proceed if we're logging out
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true') {
+        return;
+      }
 
       // If no session, redirect to login (unless we're already there)
       if (!session) {
@@ -1058,7 +1068,17 @@ function HomePageInner() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Don't restore session if we're logging out
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true') {
+        return;
+      }
+      
+      // Don't restore on SIGNED_OUT event
+      if (event === 'SIGNED_OUT') {
+        return;
+      }
+      
       if (session?.user?.email) {
         const userEmail = session.user.email;
         setEmail(userEmail);
@@ -1076,8 +1096,10 @@ function HomePageInner() {
           "free";
         setSubscriptionTier(tier);
       } else {
-        // Se la sessione è null, prova a recuperarla
-        updateUserInfo();
+        // Se la sessione è null, prova a recuperarla solo se non stiamo facendo logout
+        if (sessionStorage.getItem('jobpicks_logging_out') !== 'true') {
+          updateUserInfo();
+        }
       }
     });
     
@@ -1115,11 +1137,23 @@ function HomePageInner() {
   }, [subscriptionTier, gate, loadJobs]);
 
   async function onLogout() {
-    // Clear Supabase session
-    await supabase.auth.signOut();
+    // Set a flag to prevent auto-restore after logout
+    sessionStorage.setItem('jobpicks_logging_out', 'true');
     
-    // Clear localStorage data that might cause auto-login
+    // Clear Supabase session with global scope to clear all sessions
+    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    
+    if (error) {
+      console.error("Logout error:", error);
+    }
+    
+    // Clear all localStorage data that might cause auto-login
     localStorage.removeItem('jobpicks_user_email');
+    
+    // Clear sessionStorage flag after a delay
+    setTimeout(() => {
+      sessionStorage.removeItem('jobpicks_logging_out');
+    }, 1000);
     
     // Force a hard redirect to login to prevent any useEffect from interfering
     window.location.href = "/login";

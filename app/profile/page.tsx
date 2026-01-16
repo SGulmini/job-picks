@@ -409,7 +409,12 @@ export default function ProfilePage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Don't restore session if we're logging out
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' || event === 'SIGNED_OUT') {
+        return;
+      }
+      
       if (session?.user?.email) {
         localStorage.setItem('jobpicks_user_email', session.user.email);
       }
