@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createRequire } from "module";
 // Statically import pdfjs-dist so Next.js includes it in serverless bundle
 // pdf-parse will be imported dynamically when needed
 
 export const runtime = "nodejs";
+
+// Create require function for CommonJS modules in ESM context
+const require = createRequire(import.meta.url);
 
 // Setup DOMMatrix polyfill for serverless environments (needed by pdf-parse/pdfjs-dist)
 // This must be done at module level before any PDF parsing
@@ -164,12 +168,14 @@ export async function POST(req: NextRequest) {
     else if (name.endsWith(".pdf") || mime.includes("pdf") || buf.slice(0, 4).toString() === "%PDF") {
       try {
         // Load pdf-parse via CommonJS require (stable for Vercel production)
-        const pdfParse = require("pdf-parse");
+        const mod = require("pdf-parse");
+        // Handle both { default: fn } and direct export
+        const pdfParse = mod?.default ?? mod;
         
         // Fail fast if not a function
         if (typeof pdfParse !== "function") {
           throw new Error(
-            `pdf-parse require is not a function. Got type: ${typeof pdfParse}`
+            `pdf-parse require is not a function. Got type: ${typeof pdfParse}, module type: ${typeof mod}, has default: ${!!mod?.default}`
           );
         }
         
