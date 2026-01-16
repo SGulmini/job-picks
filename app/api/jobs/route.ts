@@ -197,6 +197,22 @@ async function fetchFromAdzuna(
   }
   
   const data = await response.json();
+  
+  // Log first job structure for debugging (only in development)
+  if (process.env.NODE_ENV === 'development' && data.results && data.results.length > 0) {
+    const firstJob = data.results[0];
+    console.log('[Adzuna API Response] First job URL fields:', {
+      'redirect_url': firstJob.redirect_url,
+      'url': firstJob.url,
+      'external_url': firstJob.external_url,
+      'link': firstJob.link,
+      'original_url': firstJob.original_url,
+      'source_url': firstJob.source_url,
+      'company.url': firstJob.company?.url,
+      'allKeys': Object.keys(firstJob).filter(k => k.toLowerCase().includes('url') || k.toLowerCase().includes('link'))
+    });
+  }
+  
   return {
     results: data.results || [],
     count: data.count || 0,
@@ -674,14 +690,40 @@ export async function GET(request: Request) {
         score += 3;
       }
 
+      // Adzuna API provides redirect_url (which goes through Adzuna) but may also have other URL fields
+      // Check all possible URL fields to find the direct link
+      const directUrl = job.url || 
+                       job.external_url || 
+                       job.link || 
+                       job.original_url ||
+                       job.source_url ||
+                       job.company?.url ||
+                       null;
+      
+      // Use direct URL if available, otherwise fall back to redirect_url
+      // Note: redirect_url always goes through Adzuna for tracking
+      const finalUrl = directUrl || job.redirect_url || "#";
+      
+      // Log for debugging (remove in production if too verbose)
+      if (index === 0 && process.env.NODE_ENV === 'development') {
+        console.log('[Adzuna Job URL Debug]', {
+          id: job.id,
+          title: job.title,
+          'job.url': job.url,
+          'job.redirect_url': job.redirect_url,
+          'job.external_url': job.external_url,
+          'job.link': job.link,
+          'finalUrl': finalUrl,
+          'isAdzunaRedirect': finalUrl.includes('adzuna.com') || finalUrl.includes('adzuna.co.uk')
+        });
+      }
+
       return {
         id: job.id?.toString() || `adzuna-${index}`,
         title,
         company: job.company?.display_name || "Unknown Company",
         location,
-        // Prefer direct URL (job.url) over redirect_url to go directly to the job posting
-        // redirect_url passes through Adzuna for tracking, but direct URL is better UX
-        url: job.url || job.redirect_url || "#",
+        url: finalUrl,
         description: job.description || "",
         salaryMin: job.salary_min,
         salaryMax: job.salary_max,
