@@ -16,16 +16,18 @@ export default function LoginPage() {
   // Redirect if already authenticated: always go to /home first.
   // /home will redirect to /profile only if the profile is missing/invalid.
   useEffect(() => {
-    // Clear logout flag when on login page
+    // Clear logout flag when on login page (check both storage locations)
     sessionStorage.removeItem('jobpicks_logging_out');
+    localStorage.removeItem('jobpicks_logging_out');
     
     // Add a small delay to ensure logout has completed
     const checkSession = async () => {
       // Wait a bit to ensure any logout operations have completed
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Don't redirect if we just logged out
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true') {
+      // Don't redirect if we just logged out (check both storage locations)
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' ||
+          localStorage.getItem('jobpicks_logging_out') === 'true') {
         return;
       }
       

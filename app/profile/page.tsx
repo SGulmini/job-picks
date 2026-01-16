@@ -410,8 +410,10 @@ export default function ProfilePage() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // Don't restore session if we're logging out
-      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' || event === 'SIGNED_OUT') {
+      // Don't restore session if we're logging out (check both storage locations)
+      if (sessionStorage.getItem('jobpicks_logging_out') === 'true' ||
+          localStorage.getItem('jobpicks_logging_out') === 'true' ||
+          event === 'SIGNED_OUT') {
         return;
       }
       
