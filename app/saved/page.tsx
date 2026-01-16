@@ -389,7 +389,29 @@ function SavedJobsPageInner() {
                     <a
                       href={job.url || "#"}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noreferrer noopener"
+                      onClick={async (e) => {
+                        // If the URL contains adzuna.com, try to resolve it to the final destination
+                        if (job.url && (job.url.includes('adzuna.com') || job.url.includes('adzuna.co.uk'))) {
+                          e.preventDefault();
+                          try {
+                            const response = await fetch(`/api/resolve-job-url?url=${encodeURIComponent(job.url)}`);
+                            const data = await response.json();
+                            if (data.url && !data.isAdzunaRedirect) {
+                              // Open the resolved direct URL
+                              window.open(data.url, '_blank', 'noopener,noreferrer');
+                            } else {
+                              // If we can't resolve it, just open the original URL
+                              window.open(job.url, '_blank', 'noopener,noreferrer');
+                            }
+                          } catch (error) {
+                            // If resolution fails, open the original URL
+                            console.error('Failed to resolve job URL:', error);
+                            window.open(job.url, '_blank', 'noopener,noreferrer');
+                          }
+                        }
+                        // If it's not an Adzuna URL, let the default link behavior proceed
+                      }}
                       style={{
                         display: "inline-block",
                         padding: "8px 14px",
