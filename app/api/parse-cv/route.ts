@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 // Statically import pdfjs-dist so Next.js includes it in serverless bundle
-import PDFParser from "pdf2json";
+// pdf-parse will be imported dynamically when needed
 
 export const runtime = "nodejs";
 
@@ -160,109 +160,50 @@ export async function POST(req: NextRequest) {
     if (mime.startsWith("text/") || name.endsWith(".txt")) {
       text = buf.toString("utf8");
     }
-    // PDF
-    else if (mime === "application/pdf" || name.endsWith(".pdf")) {
-      // Try pdf-parse first (works well in localhost)
-      // If it fails with worker/pdfjs-dist error, fallback to pdf2json (works in serverless)
-      let parseError: any = null;
-      
+    // PDF - Use flexible detection (don't rely strictly on mime type)
+    else if (name.endsWith(".pdf") || mime.includes("pdf") || buf.slice(0, 4).toString() === "%PDF") {
       try {
-        // Try pdf-parse first (works well in localhost)
-        // Import dynamically to avoid build issues with ESM
+        // Use pdf-parse which is stable and works in Node.js/serverless
+        // Import dynamically to handle ESM properly
         const pdfParseModule = await import("pdf-parse");
+        // pdf-parse exports as default in CommonJS, but may be named in ESM
         const PDFParse = (pdfParseModule as any).default || pdfParseModule;
         
-        // Try to configure worker for pdf-parse, but don't fail if it doesn't work
-        try {
-          if (PDFParse.setWorker && typeof PDFParse.setWorker === "function") {
-            PDFParse.setWorker("pdfjs-dist/legacy/build/pdf.worker.mjs").catch(() => {
-              // Ignore worker setup errors
-            });
-          }
-        } catch {
-          // Ignore worker setup errors
-        }
-
-        // Try parsing with pdf-parse first
-        const data = await PDFParse(buf, {
-          max: 0, // No page limit
-        });
+        // Parse PDF using pdf-parse
+        // pdf-parse accepts Buffer directly, which we already have
+        const data = await PDFParse(buf);
         
-        text = data.text || "";
-      } catch (e: any) {
-        parseError = e;
-        const msg = String(e?.message || e || "");
+        // Extract text from the parsed PDF
+        text = data?.text || "";
         
-        // If it's a worker/pdfjs-dist error, try fallback to pdf2json
-        if (/worker/i.test(msg) || /pdf\.worker/i.test(msg) || /fake worker/i.test(msg) || /cannot find package/i.test(msg) || /pdfjs-dist/i.test(msg)) {
-          try {
-            // Fallback to pdf2json which doesn't use pdfjs-dist
-            const pdfParser = new (PDFParser as any)(null, 1);
-            
-            const pdfText = await new Promise<string>((resolve, reject) => {
-              let extractedText = "";
-              
-              pdfParser.on("pdfParser_dataError", (errData: any) => {
-                reject(new Error(errData.parserError || "Failed to parse PDF"));
-              });
-              
-              pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
-                try {
-                  // Extract text from all pages
-                  if (pdfData.Pages && Array.isArray(pdfData.Pages)) {
-                    for (const page of pdfData.Pages) {
-                      if (page.Texts && Array.isArray(page.Texts)) {
-                        for (const textObj of page.Texts) {
-                          if (textObj.R && Array.isArray(textObj.R)) {
-                            for (const run of textObj.R) {
-                              if (run.T) {
-                                // Decode URI-encoded text
-                                extractedText += decodeURIComponent(run.T) + " ";
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                  resolve(extractedText.trim());
-                } catch (e: any) {
-                  reject(new Error(`Failed to extract text: ${e.message}`));
-                }
-              });
-              
-              // Parse the PDF buffer
-              pdfParser.parseBuffer(buf);
-            });
-            
-            text = pdfText;
-            parseError = null; // Success with fallback
-          } catch (fallbackError: any) {
-            // Both methods failed
-            parseError = fallbackError;
-          }
-        }
-        
-        // If we still have an error, return it
-        if (parseError) {
-          const msg = String(parseError?.message || parseError || "Failed to parse PDF");
-          const hintParts: string[] = [];
-          if (/password|encrypted|encryption/i.test(msg)) {
-            hintParts.push("This PDF appears to be password-protected. Please export an unprotected PDF or upload a DOCX.");
-          }
-          if (/corrupted|invalid|malformed/i.test(msg)) {
-            hintParts.push("This PDF appears to be corrupted or invalid. Please try a different PDF file.");
-          }
-          hintParts.push("If this keeps failing, try converting your CV to DOCX or plain text and upload that instead.");
+        if (!text || text.trim().length === 0) {
           return NextResponse.json(
-            {
-              error: "Failed to parse PDF CV",
-              details: msg.slice(0, 900),
-              hint: hintParts.join(" "),
-            },
-            { status: 500 }
+            { error: "Could not extract text from PDF. The PDF might be image-based or empty." },
+            { status: 400 }
           );
         }
+      } catch (e: any) {
+        const msg = String(e?.message || e || "Failed to parse PDF");
+        const hintParts: string[] = [];
+        
+        if (/password|encrypted|encryption/i.test(msg)) {
+          hintParts.push("This PDF appears to be password-protected. Please export an unprotected PDF or upload a DOCX.");
+        } else if (/worker|pdfjs|cannot find/i.test(msg)) {
+          hintParts.push("PDF parsing service is temporarily unavailable. Please try uploading a DOCX instead.");
+        } else if (/corrupted|invalid|malformed/i.test(msg)) {
+          hintParts.push("This PDF appears to be corrupted or invalid. Please try a different PDF file.");
+        } else {
+          hintParts.push("Failed to parse PDF. Please try converting your CV to DOCX or plain text and upload that instead.");
+        }
+        
+        return NextResponse.json(
+          {
+            error: "Failed to parse PDF CV",
+            details: msg.slice(0, 900),
+            hint: hintParts.join(" "),
+          },
+          { status: 500 }
+        );
       }
     }
     // DOCX
