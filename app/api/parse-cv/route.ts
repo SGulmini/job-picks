@@ -163,16 +163,13 @@ export async function POST(req: NextRequest) {
     // PDF - Use flexible detection (don't rely strictly on mime type)
     else if (name.endsWith(".pdf") || mime.includes("pdf") || buf.slice(0, 4).toString() === "%PDF") {
       try {
-        // Import pdf-parse dynamically (required for ESM compatibility)
-        const pdfParseModule = await import("pdf-parse");
-        
-        // Get the default export - pdf-parse exports as default
-        const pdfParse = (pdfParseModule as any).default;
+        // Load pdf-parse via CommonJS require (stable for Vercel production)
+        const pdfParse = require("pdf-parse");
         
         // Fail fast if not a function
         if (typeof pdfParse !== "function") {
           throw new Error(
-            `pdf-parse import is not a function. Got type: ${typeof pdfParse}`
+            `pdf-parse require is not a function. Got type: ${typeof pdfParse}`
           );
         }
         
