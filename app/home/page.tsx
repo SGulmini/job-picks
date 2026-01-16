@@ -878,7 +878,8 @@ function HomePageInner() {
       }
 
       // Se ancora non c'è sessione, aspetta un po' e riprova (per gestire il caso del magic link)
-      if (!session) {
+      // MA solo se non siamo sulla pagina login (per evitare loop dopo logout)
+      if (!session && !window.location.pathname.includes('/login')) {
         await new Promise(resolve => setTimeout(resolve, 500));
         session = (await supabase.auth.getSession()).data.session;
         if (!session) {
@@ -890,6 +891,16 @@ function HomePageInner() {
       }
 
       if (cancelled) return;
+
+      // If no session, redirect to login (unless we're already there)
+      if (!session) {
+        if (!window.location.pathname.includes('/login')) {
+          router.replace("/login");
+          return;
+        }
+        // If we're on login page and no session, don't try to restore from localStorage
+        return;
+      }
 
       const userEmail = session?.user?.email;
       if (userEmail) {
@@ -910,11 +921,13 @@ function HomePageInner() {
           "free";
         setSubscriptionTier(tier);
       } else {
-        // Prova a recuperare da localStorage come fallback
-        const savedEmail = localStorage.getItem('jobpicks_user_email');
-        if (savedEmail) {
-          setEmail(savedEmail);
-          setUserName(savedEmail.split("@")[0]);
+        // Don't restore from localStorage if we're on login page (user just logged out)
+        if (!window.location.pathname.includes('/login')) {
+          const savedEmail = localStorage.getItem('jobpicks_user_email');
+          if (savedEmail) {
+            setEmail(savedEmail);
+            setUserName(savedEmail.split("@")[0]);
+          }
         }
       }
 
@@ -1102,8 +1115,14 @@ function HomePageInner() {
   }, [subscriptionTier, gate, loadJobs]);
 
   async function onLogout() {
+    // Clear Supabase session
     await supabase.auth.signOut();
-    router.replace("/login");
+    
+    // Clear localStorage data that might cause auto-login
+    localStorage.removeItem('jobpicks_user_email');
+    
+    // Force a hard redirect to login to prevent any useEffect from interfering
+    window.location.href = "/login";
   }
 
   function editProfile() {

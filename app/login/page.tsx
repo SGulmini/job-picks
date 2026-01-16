@@ -16,11 +16,18 @@ export default function LoginPage() {
   // Redirect if already authenticated: always go to /home first.
   // /home will redirect to /profile only if the profile is missing/invalid.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Add a small delay to ensure logout has completed
+    const checkSession = async () => {
+      // Wait a bit to ensure any logout operations have completed
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         router.replace("/home");
       }
-    });
+    };
+    
+    checkSession();
 
     // Handle email confirmation callback
     const handleAuthCallback = async () => {
