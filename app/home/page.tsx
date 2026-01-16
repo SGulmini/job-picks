@@ -71,6 +71,20 @@ function HomePageInner() {
   const [email, setEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
+  // Sync candidate profile from Supabase when page loads
+  useEffect(() => {
+    const syncProfile = async () => {
+      try {
+        const { syncCandidateProfileToSupabase } = await import("@/lib/candidateProfile");
+        await syncCandidateProfileToSupabase();
+      } catch (error) {
+        console.error("Error syncing candidate profile on home page:", error);
+        // Continue anyway - not critical
+      }
+    };
+    syncProfile();
+  }, []);
+
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

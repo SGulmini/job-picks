@@ -52,20 +52,32 @@ function CoverLetterSetupInner() {
 
   // Load existing profile from Supabase/localStorage
   useEffect(() => {
-    loadCandidateProfile().then((existing) => {
-      if (existing) {
-        setFirstName(existing.firstName || "");
-        setLastName(existing.lastName || "");
-        setPhone(existing.phone || "");
-        setAddressLine1(existing.addressLine1 || "");
-        setZip(existing.zip || "");
-        setCity(existing.city || "");
-        setCountry(existing.country || "");
-        setCvText(existing.cvText || "");
-        setCvFile(existing.cvFile || null);
+    const loadProfile = async () => {
+      try {
+        // First sync from Supabase to ensure we have the latest data
+        const { syncCandidateProfileToSupabase } = await import("@/lib/candidateProfile");
+        await syncCandidateProfileToSupabase();
+        
+        // Then load the profile
+        const existing = await loadCandidateProfile();
+        if (existing) {
+          setFirstName(existing.firstName || "");
+          setLastName(existing.lastName || "");
+          setPhone(existing.phone || "");
+          setAddressLine1(existing.addressLine1 || "");
+          setZip(existing.zip || "");
+          setCity(existing.city || "");
+          setCountry(existing.country || "");
+          setCvText(existing.cvText || "");
+          setCvFile(existing.cvFile || null);
+        }
+      } catch (error) {
+        console.error("Error loading candidate profile:", error);
+      } finally {
+        setLoadingProfile(false);
       }
-      setLoadingProfile(false);
-    });
+    };
+    loadProfile();
   }, []);
 
   // If we already have everything and user landed here from Generate, allow one-click continue
