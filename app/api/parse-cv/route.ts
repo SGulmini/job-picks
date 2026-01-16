@@ -171,25 +171,29 @@ export async function POST(req: NextRequest) {
         // Use Node's real require via createRequire to avoid Next.js bundling
         const mod = require("pdf-parse");
         
-        // Explicitly check all known export shapes (no heuristics)
-        const pdfParse =
-          (typeof mod === "function" ? mod : null) ??
-          (typeof mod?.default === "function" ? mod.default : null) ??
-          (typeof mod?.pdfParse === "function" ? mod.pdfParse : null);
+        // pdf-parse v2+ exports PDFParse class, not a function
+        // Check for PDFParse class (capital P)
+        const PDFParse = mod?.PDFParse;
         
-        // Fail fast if not callable
-        if (!pdfParse) {
+        if (!PDFParse || typeof PDFParse !== "function") {
           throw new Error(
-            `pdf-parse not callable. typeof mod=${typeof mod}, keys=${Object.keys(mod || {}).join(",")}`
+            `pdf-parse PDFParse class not found. typeof mod=${typeof mod}, keys=${Object.keys(mod || {}).join(",")}`
           );
         }
         
-        // Parse PDF using pdf-parse function
-        // pdf-parse accepts Buffer directly
-        const data = await pdfParse(buf);
+        // Instantiate PDFParse with buffer data
+        const parser = new PDFParse({ data: buf });
         
-        // Extract text from the parsed PDF
-        text = data?.text || "";
+        // Get text from the parser
+        const result = await parser.getText();
+        
+        // Extract text from the result
+        text = result?.text || "";
+        
+        // Clean up parser resources if available
+        if (typeof parser.destroy === "function") {
+          await parser.destroy();
+        }
         
         if (!text || text.trim().length === 0) {
           return NextResponse.json(
