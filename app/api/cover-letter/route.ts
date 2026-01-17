@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COVER_LETTER_TEMPLATE_EN, COVER_LETTER_TEMPLATE_FR } from "@/lib/coverLetterTemplate";
+import { 
+  COVER_LETTER_TEMPLATE_EN, 
+  COVER_LETTER_TEMPLATE_FR,
+  COVER_LETTER_TEMPLATE_EN_SHORT,
+  COVER_LETTER_TEMPLATE_FR_SHORT
+} from "@/lib/coverLetterTemplate";
 
 type JobInput = {
   id?: string;
@@ -293,8 +298,10 @@ export async function POST(req: NextRequest) {
         ? ({ code: "en", name: "English" } as const)
         : detectLanguageFromText(languageInput);
     const baseTemplate = targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR : COVER_LETTER_TEMPLATE_EN;
+    const shortTemplate = targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_SHORT : COVER_LETTER_TEMPLATE_EN_SHORT;
 
-    const prompt = [
+    // Generate both long and short versions
+    const generatePrompt = (template: string, isShort: boolean) => [
       "Write a tailored cover letter using the TEMPLATE below as the basis (structure, style, tone).",
       "Requirements:",
       `- TARGET_LANGUAGE: ${targetLang.name} (code: ${targetLang.code}).`,
@@ -348,91 +355,113 @@ export async function POST(req: NextRequest) {
       profile?.city ? `City: ${profile.city}` : "",
       profile?.remote !== undefined ? `Remote: ${profile.remote ? "Yes" : "No"}` : "",
       "",
-      "IMPORTANT: Use the CV to pick 3-6 relevant skills/experiences to mention. If the CV is missing details, keep it generic.",
+      isShort
+        ? "IMPORTANT: Keep it SHORT and CONCISE. Focus on the most relevant experience. Maximum 3-4 short paragraphs total."
+        : "IMPORTANT: Use the CV to pick 3-6 relevant skills/experiences to mention. If the CV is missing details, keep it generic.",
     ]
       .filter(Boolean)
       .join("\n");
 
-    const requestBody = {
-      model,
-      temperature: 0.4,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an expert career coach who writes high-quality, tailored cover letters following a provided template precisely.",
-        },
-        { role: "user", content: prompt },
-      ],
-    };
+    const longPrompt = generatePrompt(baseTemplate, false);
+    const shortPrompt = generatePrompt(shortTemplate, true);
 
-    // Basic retry for transient rate-limits (429). Quota errors won't be fixed by retries.
-    let resp: Response | null = null;
-    let lastErrorText = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
-      resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
+    // Helper function to call OpenAI API
+    const callOpenAI = async (prompt: string): Promise<string> => {
+      const requestBody = {
+        model,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert career coach who writes high-quality, tailored cover letters following a provided template precisely.",
+          },
+          { role: "user", content: prompt },
+        ],
+      };
 
-      if (resp.ok) break;
+      // Basic retry for transient rate-limits (429). Quota errors won't be fixed by retries.
+      let resp: Response | null = null;
+      let lastErrorText = "";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-      const txt = await resp.text().catch(() => "");
-      lastErrorText = txt;
+        if (resp.ok) break;
 
-      // Only retry 429 (rate limits). Sleep a bit and retry.
-      if (resp.status === 429 && attempt < 2) {
-        const retryAfterHeader = resp.headers.get("retry-after");
-        const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
-        const waitMs = Number.isFinite(retryAfterSeconds)
-          ? Math.max(500, retryAfterSeconds * 1000)
-          : 800 * (attempt + 1);
-        await sleep(waitMs);
-        continue;
+        const txt = await resp.text().catch(() => "");
+        lastErrorText = txt;
+
+        // Only retry 429 (rate limits). Sleep a bit and retry.
+        if (resp.status === 429 && attempt < 2) {
+          const retryAfterHeader = resp.headers.get("retry-after");
+          const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
+          const waitMs = Number.isFinite(retryAfterSeconds)
+            ? Math.max(500, retryAfterSeconds * 1000)
+            : 800 * (attempt + 1);
+          await sleep(waitMs);
+          continue;
+        }
+
+        break;
       }
 
-      break;
+      if (!resp || !resp.ok) {
+        const status = resp?.status ?? 500;
+        const txt = lastErrorText || (await resp?.text().catch(() => "") ?? "");
+        const parsed = tryParseJson(txt);
+        const message =
+          parsed?.error?.message ||
+          `OpenAI request failed (${status})`;
+
+        throw new Error(message);
+      }
+
+      const data: any = await resp.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text || typeof text !== "string") {
+        throw new Error("OpenAI response missing text");
+      }
+
+      return text.trim();
+    };
+
+    // Generate both versions in parallel
+    try {
+      const [longVersion, shortVersion] = await Promise.all([
+        callOpenAI(longPrompt),
+        callOpenAI(shortPrompt),
+      ]);
+
+      return NextResponse.json({ 
+        coverLetter: longVersion,
+        coverLetterShort: shortVersion
+      });
+    } catch (e: any) {
+      // If one fails, try to generate at least one
+      try {
+        const longVersion = await callOpenAI(longPrompt);
+        return NextResponse.json({ 
+          coverLetter: longVersion,
+          coverLetterShort: null,
+          error: "Short version generation failed, but long version is available"
+        });
+      } catch (e2: any) {
+        return NextResponse.json(
+          { 
+            error: e?.message || e2?.message || "Cover letter generation failed",
+            status: 500
+          },
+          { status: 500 }
+        );
+      }
     }
-
-    if (!resp || !resp.ok) {
-      const status = resp?.status ?? 500;
-      const txt = lastErrorText || (await resp?.text().catch(() => "") ?? "");
-      const parsed = tryParseJson(txt);
-      const message =
-        parsed?.error?.message ||
-        `OpenAI request failed (${status})`;
-
-      // Make 429 user-actionable (quota vs rate limit usually explained in message)
-      const hints =
-        status === 429
-          ? "If this keeps happening, check OpenAI billing/usage limits or wait a bit and retry."
-          : undefined;
-
-      return NextResponse.json(
-        {
-          error: message,
-          status,
-          hint: hints,
-          details: typeof txt === "string" ? txt.slice(0, 800) : "",
-        },
-        { status }
-      );
-    }
-
-    const data: any = await resp.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text || typeof text !== "string") {
-      return NextResponse.json(
-        { error: "OpenAI response missing text" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ coverLetter: text.trim() });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Cover letter generation failed" },

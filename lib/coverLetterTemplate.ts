@@ -61,3 +61,34 @@ Dear Hiring Manager,
 
 Attachments: CV/Resume, diplomas, work certificates
 `.trim();
+
+// Short version template - concise and direct
+export const COVER_LETTER_TEMPLATE_EN_SHORT = `
+Dear Hiring Manager,
+
+I am writing to apply for the {{ROLE_TITLE}} position at {{COMPANY_NAME}}. {{SHORT_INTRODUCTION}}
+
+{{SHORT_EXPERIENCE_PARAGRAPH}}
+
+{{SHORT_INTEREST_PARAGRAPH}}
+
+Thank you for your consideration.
+
+Sincerely,
+{{CANDIDATE_FULL_NAME}}
+`.trim();
+
+export const COVER_LETTER_TEMPLATE_FR_SHORT = `
+Madame, Monsieur,
+
+Je vous écris pour postuler au poste de {{ROLE_TITLE}} chez {{COMPANY_NAME}}. {{SHORT_INTRODUCTION}}
+
+{{SHORT_EXPERIENCE_PARAGRAPH}}
+
+{{SHORT_INTEREST_PARAGRAPH}}
+
+Je vous remercie de votre attention.
+
+Cordialement,
+{{CANDIDATE_FULL_NAME}}
+`.trim();

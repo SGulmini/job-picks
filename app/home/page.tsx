@@ -28,7 +28,12 @@ const CANDIDATE_KEY = "jobPicks_candidate_v1";
 const EXTERNAL_JOB_DRAFT_KEY = "jobPicks_externalJobDraft_v1";
 
 type SavedJob = Job & { savedAt: string };
-type CoverLetterCache = Record<string, { text: string; createdAt: string; lang?: "auto" | "en" }>;
+type CoverLetterCache = Record<string, { 
+  text: string; 
+  textShort?: string | null;
+  createdAt: string; 
+  lang?: "auto" | "en" 
+}>;
 
 const COVER_LETTERS_KEY = "jobPicks_coverLetters_v2";
 
@@ -99,6 +104,8 @@ function HomePageInner() {
   const [error, setError] = useState<string | null>(null);
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free");
   const [coverLetterByJobId, setCoverLetterByJobId] = useState<Record<string, string>>({});
+  const [coverLetterShortByJobId, setCoverLetterShortByJobId] = useState<Record<string, string>>({});
+  const [selectedCoverLetterVersion, setSelectedCoverLetterVersion] = useState<Record<string, "long" | "short">>({});
   const [coverLetterLoadingId, setCoverLetterLoadingId] = useState<string | null>(null);
   const [coverLetterErrorByJobId, setCoverLetterErrorByJobId] = useState<Record<string, string>>({});
   const [coverLetterLangModalOpen, setCoverLetterLangModalOpen] = useState(false);
@@ -632,6 +639,13 @@ function HomePageInner() {
     const cache = readCoverLetterCache();
     if (cache[jobId]?.text && cache[jobId]?.lang === preferredLanguage) {
       setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: cache[jobId].text }));
+      if (cache[jobId]?.textShort) {
+        setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: cache[jobId].textShort! }));
+      }
+      // Default to long version if not selected
+      if (!selectedCoverLetterVersion[jobId]) {
+        setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "long" }));
+      }
       return;
     }
 
@@ -676,10 +690,23 @@ function HomePageInner() {
       const text = typeof data.coverLetter === "string" ? data.coverLetter : "";
       if (!text) throw new Error("Empty cover letter received");
 
+      const textShort = typeof data.coverLetterShort === "string" ? data.coverLetterShort : null;
+
       setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: text }));
+      if (textShort) {
+        setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: textShort }));
+      }
+      // Default to long version
+      setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "long" }));
+
       const nextCache: CoverLetterCache = {
         ...cache,
-        [jobId]: { text, createdAt: new Date().toISOString(), lang: preferredLanguage },
+        [jobId]: { 
+          text, 
+          textShort: textShort || undefined,
+          createdAt: new Date().toISOString(), 
+          lang: preferredLanguage 
+        },
       };
       writeCoverLetterCache(nextCache);
     } catch (e: any) {
@@ -693,18 +720,24 @@ function HomePageInner() {
   }, [hasCandidateProfile, parsedProfile, readCandidateProfile, readCoverLetterCache, router, writeCoverLetterCache]);
 
   const onCopyCoverLetter = useCallback(async (jobId: string) => {
-    const text = coverLetterByJobId[jobId];
+    const version = selectedCoverLetterVersion[jobId] || "long";
+    const text = version === "short" 
+      ? coverLetterShortByJobId[jobId] 
+      : coverLetterByJobId[jobId];
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
       // ignore
     }
-  }, [coverLetterByJobId]);
+  }, [coverLetterByJobId, coverLetterShortByJobId, selectedCoverLetterVersion]);
 
   const onDownloadCoverLetterDocx = useCallback(async (job: Job) => {
     const jobId = String(job.id);
-    const text = coverLetterByJobId[jobId];
+    const version = selectedCoverLetterVersion[jobId] || "long";
+    const text = version === "short" 
+      ? coverLetterShortByJobId[jobId] 
+      : coverLetterByJobId[jobId];
     if (!text) return;
     try {
       const fileName = `Cover letter - ${job.company || "Company"} - ${job.title || "Role"}`;
@@ -1622,8 +1655,50 @@ function HomePageInner() {
                         color: "var(--jp-panel-fg)",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
+                        {coverLetterShortByJobId[String(job.id)] && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "long" }))}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor: (selectedCoverLetterVersion[String(job.id)] || "long") === "long" 
+                                  ? "rgba(168,85,247,0.2)" 
+                                  : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Long
+                            </button>
+                            <button
+                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "short" }))}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "short" 
+                                  ? "rgba(168,85,247,0.2)" 
+                                  : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Short
+                            </button>
+                          </div>
+                        )}
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <button
                             onClick={() => onDownloadCoverLetterDocx(job)}
@@ -1665,7 +1740,9 @@ function HomePageInner() {
                       </div>
                       <textarea
                         readOnly
-                        value={coverLetterByJobId[String(job.id)]}
+                        value={(selectedCoverLetterVersion[String(job.id)] || "long") === "short" 
+                          ? (coverLetterShortByJobId[String(job.id)] || coverLetterByJobId[String(job.id)])
+                          : coverLetterByJobId[String(job.id)]}
                         style={{
                           marginTop: 10,
                           width: "100%",
