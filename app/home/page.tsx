@@ -116,6 +116,7 @@ function HomePageInner() {
 
   const [externalJobId, setExternalJobId] = useState<string>("");
   const [externalUrl, setExternalUrl] = useState<string>("");
+  const [externalJobDescription, setExternalJobDescription] = useState<string>("");
   const [externalJob, setExternalJob] = useState<ExternalJobDraft | null>(null);
   const [externalFormError, setExternalFormError] = useState<string | null>(null);
 
@@ -814,13 +815,16 @@ function HomePageInner() {
       extractedLocation = String(jobFromLink?.location || "");
       extractedDescription = String(jobFromLink?.description || "");
 
+      // Use pasted description if available, otherwise use extracted description
+      const finalDescription = externalJobDescription.trim() || extractedDescription;
+
       const draft: ExternalJobDraft = {
         id,
         url,
         title: extractedTitle,
         company: extractedCompany,
         location: extractedLocation,
-        description: extractedDescription,
+        description: finalDescription,
         updatedAt: new Date().toISOString(),
       };
       setExternalJob(draft);
@@ -839,18 +843,22 @@ function HomePageInner() {
       setCoverLetterLoadingId(null);
     }
 
+    // Use pasted description if available, otherwise use extracted description
+    const finalDescription = externalJobDescription.trim() || extractedDescription;
+
     const job: Job = {
       id,
       title: extractedTitle.trim() || "Job opportunity",
       company: extractedCompany.trim() || "Company",
       location: extractedLocation.trim(),
       url,
-      description: extractedDescription.trim(),
+      description: finalDescription.trim(),
     };
 
     await onGenerateCoverLetter(job, preferredLanguage);
   }, [
     externalUrl,
+    externalJobDescription,
     onGenerateCoverLetter,
     writeExternalJobDraft,
   ]);
@@ -1823,6 +1831,29 @@ function HomePageInner() {
                   )}
                 </div>
 
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
+                    Job description (optional - paste here if the link is not readable)
+                  </label>
+                  <textarea
+                    value={externalJobDescription}
+                    onChange={(e) => setExternalJobDescription(e.target.value)}
+                    placeholder="Paste the job description here if the link cannot be automatically extracted..."
+                    style={{
+                      width: "100%",
+                      minHeight: 120,
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid var(--jp-input-border)",
+                      backgroundColor: "var(--jp-input-bg)",
+                      color: "var(--jp-input-fg)",
+                      fontSize: 12,
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                    }}
+                  />
+                </div>
+
                 {!!externalFormError && (
                   <div style={{ marginTop: 10, color: "#ef4444", fontSize: 12, whiteSpace: "pre-wrap" }}>
                     {externalFormError}
@@ -1906,40 +1937,87 @@ function HomePageInner() {
                       )}
                       {!!text && (
                         <div style={{ marginTop: 10 }}>
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                            <button
-                              onClick={() => onCopyCoverLetter(id)}
-                              style={{
-                                padding: "8px 12px",
-                                borderRadius: 10,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: "var(--jp-panel-bg)",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 13,
-                                fontWeight: 800,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Copy
-                            </button>
-                            <button
-                              onClick={() => onDownloadCoverLetterDocx(jobForDocx)}
-                              style={{
-                                padding: "8px 12px",
-                                borderRadius: 10,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: "var(--jp-panel-bg)",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 13,
-                                fontWeight: 800,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Download .docx
-                            </button>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                            <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
+                            {coverLetterShortByJobId[id] && (
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <button
+                                  onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [id]: "long" }))}
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid var(--jp-panel-border)",
+                                    backgroundColor: (selectedCoverLetterVersion[id] || "long") === "long" 
+                                      ? "rgba(168,85,247,0.2)" 
+                                      : "transparent",
+                                    color: "var(--jp-panel-fg)",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    opacity: 0.9,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  Long
+                                </button>
+                                <button
+                                  onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [id]: "short" }))}
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid var(--jp-panel-border)",
+                                    backgroundColor: selectedCoverLetterVersion[id] === "short" 
+                                      ? "rgba(168,85,247,0.2)" 
+                                      : "transparent",
+                                    color: "var(--jp-panel-fg)",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    opacity: 0.9,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  Short
+                                </button>
+                              </div>
+                            )}
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              <button
+                                onClick={() => onCopyCoverLetter(id)}
+                                style={{
+                                  padding: "8px 12px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--jp-panel-border)",
+                                  backgroundColor: "var(--jp-panel-bg)",
+                                  color: "var(--jp-panel-fg)",
+                                  fontSize: 13,
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => onDownloadCoverLetterDocx(jobForDocx)}
+                                style={{
+                                  padding: "8px 12px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--jp-panel-border)",
+                                  backgroundColor: "var(--jp-panel-bg)",
+                                  color: "var(--jp-panel-fg)",
+                                  fontSize: 13,
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Download .docx
+                              </button>
+                            </div>
                           </div>
                           <textarea
-                            value={text}
+                            value={(selectedCoverLetterVersion[id] || "long") === "short" 
+                              ? (coverLetterShortByJobId[id] || text)
+                              : text}
                             readOnly
                             style={{
                               marginTop: 10,
