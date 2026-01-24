@@ -1000,19 +1000,46 @@ export async function GET(request: Request) {
     // - premium: max 10 picks/day
     const maxJobs = subscriptionTier === "premium" ? 10 : 3;
 
+    // Helper function to create a unique key for deduplication
+    // Uses URL if available, otherwise title+company+location
+    const getJobUniqueKey = (job: JobWithScore): string => {
+      if (job.url && job.url !== "#") {
+        // Normalize URL by removing query params and fragments for better matching
+        try {
+          const url = new URL(job.url);
+          return url.origin + url.pathname;
+        } catch {
+          // If URL parsing fails, use the full URL
+          return job.url;
+        }
+      }
+      // Fallback to title+company+location combination
+      const title = (job.title || "").toLowerCase().trim();
+      const company = (job.company || "").toLowerCase().trim();
+      const location = (job.location || "").toLowerCase().trim();
+      return `${title}::${company}::${location}`;
+    };
+
     // For both tiers, take the best from strict first, then fill from relaxed if needed.
+    // Use robust deduplication to prevent same job appearing multiple times
     const picked: JobWithScore[] = [];
+    const seenKeys = new Set<string>();
+    
     for (const j of sortedStrict) {
       if (picked.length >= maxJobs) break;
+      const key = getJobUniqueKey(j);
+      if (seenKeys.has(key)) continue; // Skip duplicates
+      seenKeys.add(key);
       picked.push(j);
     }
+    
     if (picked.length < maxJobs) {
-      const seen = new Set(picked.map((p) => p.id));
       for (const j of relaxedCandidates) {
         if (picked.length >= maxJobs) break;
-        if (seen.has(j.id)) continue;
+        const key = getJobUniqueKey(j);
+        if (seenKeys.has(key)) continue; // Skip duplicates
+        seenKeys.add(key);
         picked.push(j);
-        seen.add(j.id);
       }
     }
 
