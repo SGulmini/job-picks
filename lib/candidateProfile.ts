@@ -17,6 +17,7 @@ export type CandidateProfile = {
   country: string;
   cvText: string;
   cvFile?: CvFileMeta | null;
+  cvCustomPhrases?: string[]; // Custom phrases to personalize CV for specific positions
   updatedAt: string;
 };
 
@@ -63,6 +64,7 @@ export async function loadCandidateProfile(): Promise<CandidateProfile | null> {
           country: data.country || "",
           cvText: data.cv_text || "",
           cvFile: data.cv_file ? (typeof data.cv_file === 'string' ? JSON.parse(data.cv_file) : data.cv_file) : null,
+          cvCustomPhrases: data.cv_custom_phrases ? (typeof data.cv_custom_phrases === 'string' ? JSON.parse(data.cv_custom_phrases) : data.cv_custom_phrases) : [],
           updatedAt: data.updated_at || new Date().toISOString(),
         };
         
@@ -144,6 +146,7 @@ export async function saveCandidateProfile(profile: CandidateProfile): Promise<v
           country: profile.country,
           cv_text: profile.cvText,
           cv_file: profile.cvFile ? JSON.stringify(profile.cvFile) : null,
+          cv_custom_phrases: profile.cvCustomPhrases && profile.cvCustomPhrases.length > 0 ? JSON.stringify(profile.cvCustomPhrases) : null,
           updated_at: profile.updatedAt || new Date().toISOString(),
         }, {
           onConflict: "user_id",

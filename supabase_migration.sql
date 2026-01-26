@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS candidate_profiles (
   country TEXT NOT NULL,
   cv_text TEXT NOT NULL,
   cv_file JSONB,
+  cv_custom_phrases JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   UNIQUE(user_id)
