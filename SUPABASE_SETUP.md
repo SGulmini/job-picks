@@ -22,10 +22,14 @@ Per far funzionare la sincronizzazione dei dati del candidato tra dispositivi, d
 
 ## Cosa fa lo script:
 
-- Crea la tabella `candidate_profiles` con tutti i campi necessari
+- Crea la tabella `candidate_profiles` con tutti i campi necessari (incluso `cv_custom_phrases` per le frasi personalizzabili)
 - Configura Row Level Security (RLS) per la sicurezza
 - Crea le policy per permettere agli utenti di leggere/scrivere solo i propri dati
 - Crea un indice per migliorare le performance
+
+## Se hai già creato la tabella:
+
+Se hai già eseguito lo script `supabase_migration.sql` in precedenza, esegui anche `supabase_migration_add_phrases.sql` per aggiungere il campo `cv_custom_phrases`.
 
 ## Troubleshooting:
 
