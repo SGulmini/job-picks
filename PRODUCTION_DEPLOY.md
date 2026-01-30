@@ -74,9 +74,24 @@ Assicurati che tutte le variabili d'ambiente siano configurate in Vercel Product
    - `STRIPE_WEBHOOK_SECRET` (se usata)
    - `ADZUNA_APP_ID`
    - `ADZUNA_APP_KEY`
+   - `NEXT_PUBLIC_BASE_URL` (deve essere `https://job-picks.vercel.app` per produzione)
    - E tutte le altre necessarie
 
 5. Assicurati che siano configurate per **"Production"** (non solo Preview)
+
+### 4.1. Configura i Redirect URL in Supabase
+
+**IMPORTANTE**: Per far funzionare correttamente i link di conferma email, devi configurare i redirect URL in Supabase:
+
+1. Vai su https://app.supabase.com → Il tuo progetto
+2. Vai su **"Settings"** → **"Auth"** → **"URL Configuration"**
+3. In **"Site URL"**, inserisci: `https://job-picks.vercel.app`
+4. In **"Redirect URLs"**, aggiungi:
+   - `https://job-picks.vercel.app/home`
+   - `https://job-picks.vercel.app/**` (wildcard per tutte le route)
+5. Salva le modifiche
+
+Questo assicura che quando un utente clicca sul link di conferma email, venga reindirizzato all'app online e non a localhost.
 
 ## 5. Pulisci la Cache del Browser
 

@@ -107,12 +107,16 @@ export default function LoginPage() {
     try {
       if (isSignUp) {
         // Sign up with email verification
-        const redirectUrl = `${window.location.origin}/home`;
+        // Use NEXT_PUBLIC_BASE_URL if available (production), otherwise use current origin (development)
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
+        const redirectUrl = `${baseUrl}/home`;
         
         console.log("Attempting sign up with:", {
           email,
           redirectUrl,
-          origin: window.location.origin
+          baseUrl,
+          origin: window.location.origin,
+          envBaseUrl: process.env.NEXT_PUBLIC_BASE_URL
         });
 
         const { data, error: signUpError } = await supabase.auth.signUp({

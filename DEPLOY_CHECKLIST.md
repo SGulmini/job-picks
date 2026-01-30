@@ -36,7 +36,24 @@ Assicurati che ci siano tutte queste variabili per **Production**:
 - `STRIPE_WEBHOOK_SECRET`
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 
-### 3. Esegui le Migrazioni SQL in Supabase
+#### Base URL (IMPORTANTE per email di conferma)
+- `NEXT_PUBLIC_BASE_URL` (deve essere `https://job-picks.vercel.app` per produzione)
+
+### 3. Configura i Redirect URL in Supabase
+
+**IMPORTANTE**: Per far funzionare correttamente i link di conferma email, devi configurare i redirect URL in Supabase:
+
+1. Vai su https://app.supabase.com → Il tuo progetto
+2. Vai su **"Settings"** → **"Auth"** → **"URL Configuration"**
+3. In **"Site URL"**, inserisci: `https://job-picks.vercel.app`
+4. In **"Redirect URLs"**, aggiungi:
+   - `https://job-picks.vercel.app/home`
+   - `https://job-picks.vercel.app/**` (wildcard per tutte le route)
+5. Salva le modifiche
+
+Questo assicura che quando un utente clicca sul link di conferma email, venga reindirizzato all'app online e non a localhost.
+
+### 4. Esegui le Migrazioni SQL in Supabase
 
 #### A. Tabella candidate_profiles (se non esiste già)
 1. Vai su https://app.supabase.com → Il tuo progetto → SQL Editor
@@ -47,7 +64,7 @@ Assicurati che ci siano tutte queste variabili per **Production**:
 1. Vai su https://app.supabase.com → Il tuo progetto → SQL Editor
 2. Esegui il contenuto di `supabase_migration_templates.sql`
 
-### 4. Verifica il Build Locale
+### 5. Verifica il Build Locale
 
 ```bash
 npm run build
