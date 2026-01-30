@@ -22,7 +22,17 @@ const SAVED_JOBS_KEY = "jobPicks_savedJobs_v1";
 const COVER_LETTERS_KEY = "jobPicks_coverLetters_v2";
 const CANDIDATE_KEY = "jobPicks_candidate_v1";
 
-type CoverLetterCache = Record<string, { text: string; createdAt: string; lang?: "auto" | "en" }>;
+type CoverLetterCache = Record<
+  string,
+  {
+    text: string;
+    textShort?: string | null;
+    textVeryShort?: string | null;
+    textCreative?: string | null;
+    createdAt: string;
+    lang?: "auto" | "en";
+  }
+>;
 
 function readSavedJobs(): SavedJob[] {
   try {
@@ -86,6 +96,12 @@ function SavedJobsPageInner() {
   const searchParams = useSearchParams();
   const [items, setItems] = useState<SavedJob[]>([]);
   const [coverLetterById, setCoverLetterById] = useState<Record<string, string>>({});
+  const [coverLetterShortById, setCoverLetterShortById] = useState<Record<string, string>>({});
+  const [coverLetterVeryShortById, setCoverLetterVeryShortById] = useState<Record<string, string>>({});
+  const [coverLetterCreativeById, setCoverLetterCreativeById] = useState<Record<string, string>>({});
+  const [selectedCoverLetterVersion, setSelectedCoverLetterVersion] = useState<
+    Record<string, "long" | "short" | "very_short" | "creative">
+  >({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string>>({});
   const [coverLetterLangModalOpen, setCoverLetterLangModalOpen] = useState(false);
@@ -96,11 +112,21 @@ function SavedJobsPageInner() {
     setItems(saved);
     const cache = readCoverLetterCache();
     const initial: Record<string, string> = {};
+    const initialShort: Record<string, string> = {};
+    const initialVeryShort: Record<string, string> = {};
+    const initialCreative: Record<string, string> = {};
     for (const j of saved) {
       const id = String(j.id);
-      if (cache[id]?.text) initial[id] = cache[id].text;
+      const cached = cache[id];
+      if (cached?.text) initial[id] = cached.text;
+      if (cached?.textShort) initialShort[id] = cached.textShort;
+      if (cached?.textVeryShort) initialVeryShort[id] = cached.textVeryShort;
+      if (cached?.textCreative) initialCreative[id] = cached.textCreative;
     }
     setCoverLetterById(initial);
+    setCoverLetterShortById(initialShort);
+    setCoverLetterVeryShortById(initialVeryShort);
+    setCoverLetterCreativeById(initialCreative);
   }, []);
 
   // If coming back from setup, auto-generate for the requested job id.
@@ -146,7 +172,20 @@ function SavedJobsPageInner() {
 
     const cache = readCoverLetterCache();
     if (cache[id]?.text && cache[id]?.lang === preferredLanguage) {
-      setCoverLetterById((p) => ({ ...p, [id]: cache[id].text }));
+      const cached = cache[id];
+      setCoverLetterById((p) => ({ ...p, [id]: cached.text }));
+      if (cached.textShort) {
+        setCoverLetterShortById((p) => ({ ...p, [id]: cached.textShort! }));
+      }
+      if (cached.textVeryShort) {
+        setCoverLetterVeryShortById((p) => ({ ...p, [id]: cached.textVeryShort! }));
+      }
+      if (cached.textCreative) {
+        setCoverLetterCreativeById((p) => ({ ...p, [id]: cached.textCreative! }));
+      }
+      if (!selectedCoverLetterVersion[id]) {
+        setSelectedCoverLetterVersion((p) => ({ ...p, [id]: "long" }));
+      }
       return;
     }
 
@@ -186,10 +225,33 @@ function SavedJobsPageInner() {
       const text = typeof data.coverLetter === "string" ? data.coverLetter : "";
       if (!text) throw new Error("Empty cover letter received");
 
+      const textShort = typeof data.coverLetterShort === "string" ? data.coverLetterShort : null;
+      const textVeryShort =
+        typeof data.coverLetterVeryShort === "string" ? data.coverLetterVeryShort : null;
+      const textCreative = typeof data.coverLetterCreative === "string" ? data.coverLetterCreative : null;
+
       setCoverLetterById((p) => ({ ...p, [id]: text }));
+      if (textShort) {
+        setCoverLetterShortById((p) => ({ ...p, [id]: textShort }));
+      }
+      if (textVeryShort) {
+        setCoverLetterVeryShortById((p) => ({ ...p, [id]: textVeryShort }));
+      }
+      if (textCreative) {
+        setCoverLetterCreativeById((p) => ({ ...p, [id]: textCreative }));
+      }
+      setSelectedCoverLetterVersion((p) => ({ ...p, [id]: "long" }));
+
       const nextCache: CoverLetterCache = {
         ...cache,
-        [id]: { text, createdAt: new Date().toISOString(), lang: preferredLanguage },
+        [id]: {
+          text,
+          textShort: textShort || undefined,
+          textVeryShort: textVeryShort || undefined,
+          textCreative: textCreative || undefined,
+          createdAt: new Date().toISOString(),
+          lang: preferredLanguage,
+        },
       };
       writeCoverLetterCache(nextCache);
     } catch (e: any) {
@@ -200,7 +262,13 @@ function SavedJobsPageInner() {
   };
 
   const copy = async (id: string) => {
-    const text = coverLetterById[id];
+    const version = selectedCoverLetterVersion[id] || "long";
+    const text =
+      version === "very_short"
+        ? coverLetterVeryShortById[id] || coverLetterShortById[id] || coverLetterById[id]
+        : version === "short"
+        ? coverLetterShortById[id] || coverLetterById[id]
+        : coverLetterById[id];
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -211,7 +279,13 @@ function SavedJobsPageInner() {
 
   const downloadDocx = async (job: SavedJob) => {
     const id = String(job.id);
-    const text = coverLetterById[id];
+    const version = selectedCoverLetterVersion[id] || "long";
+    const text =
+      version === "very_short"
+        ? coverLetterVeryShortById[id] || coverLetterShortById[id] || coverLetterById[id]
+        : version === "short"
+        ? coverLetterShortById[id] || coverLetterById[id]
+        : coverLetterById[id];
     if (!text) return;
     try {
       const fileName = `Cover letter - ${job.company || "Company"} - ${job.title || "Role"}`;
@@ -494,9 +568,179 @@ function SavedJobsPageInner() {
                       backgroundColor: "rgba(0,0,0,0.02)",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
                       <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
+                      {(coverLetterShortById[String(job.id)] ||
+                        coverLetterVeryShortById[String(job.id)] ||
+                        coverLetterCreativeById[String(job.id)]) && (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "long" }))}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 8,
+                              border: "1px solid var(--jp-panel-border)",
+                              backgroundColor: (selectedCoverLetterVersion[String(job.id)] || "long") === "long" 
+                                ? "rgba(168,85,247,0.2)" 
+                                : "transparent",
+                              color: "var(--jp-panel-fg)",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              opacity: 0.9,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Long
+                          </button>
+                          {coverLetterShortById[String(job.id)] && (
+                            <button
+                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "short" }))}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "short" 
+                                  ? "rgba(168,85,247,0.2)" 
+                                  : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Short
+                            </button>
+                          )}
+                          {coverLetterVeryShortById[String(job.id)] && (
+                            <button
+                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "very_short" }))}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "very_short" 
+                                  ? "rgba(168,85,247,0.2)" 
+                                  : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Very short
+                            </button>
+                          )}
+                          {coverLetterCreativeById[String(job.id)] && (
+                            <button
+                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "creative" }))}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "creative" 
+                                  ? "rgba(251,146,60,0.2)" 
+                                  : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Creative
+                            </button>
+                          )}
+                        </div>
+                      )}
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        {(coverLetterShortById[String(job.id)] ||
+                          coverLetterVeryShortById[String(job.id)]) && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              onClick={() =>
+                                setSelectedCoverLetterVersion((p) => ({
+                                  ...p,
+                                  [String(job.id)]: "long",
+                                }))
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor:
+                                  (selectedCoverLetterVersion[String(job.id)] || "long") === "long"
+                                    ? "rgba(168,85,247,0.2)"
+                                    : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Long
+                            </button>
+                            <button
+                              onClick={() =>
+                                setSelectedCoverLetterVersion((p) => ({
+                                  ...p,
+                                  [String(job.id)]: "short",
+                                }))
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--jp-panel-border)",
+                                backgroundColor:
+                                  selectedCoverLetterVersion[String(job.id)] === "short"
+                                    ? "rgba(168,85,247,0.2)"
+                                    : "transparent",
+                                color: "var(--jp-panel-fg)",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                opacity: 0.9,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Short
+                            </button>
+                            {coverLetterVeryShortById[String(job.id)] && (
+                              <button
+                                onClick={() =>
+                                  setSelectedCoverLetterVersion((p) => ({
+                                    ...p,
+                                    [String(job.id)]: "very_short",
+                                  }))
+                                }
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--jp-panel-border)",
+                                  backgroundColor:
+                                    selectedCoverLetterVersion[String(job.id)] === "very_short"
+                                      ? "rgba(168,85,247,0.2)"
+                                      : "transparent",
+                                  color: "var(--jp-panel-fg)",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  opacity: 0.9,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Very short
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <button
                           onClick={() => downloadDocx(job)}
                           style={{
@@ -537,7 +781,15 @@ function SavedJobsPageInner() {
                     </div>
                     <textarea
                       readOnly
-                      value={coverLetterById[String(job.id)]}
+                      value={
+                        (selectedCoverLetterVersion[String(job.id)] || "long") === "very_short"
+                          ? coverLetterVeryShortById[String(job.id)] ||
+                            coverLetterShortById[String(job.id)] ||
+                            coverLetterById[String(job.id)]
+                          : (selectedCoverLetterVersion[String(job.id)] || "long") === "short"
+                          ? coverLetterShortById[String(job.id)] || coverLetterById[String(job.id)]
+                          : coverLetterById[String(job.id)]
+                      }
                       style={{
                         marginTop: 10,
                         width: "100%",

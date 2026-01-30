@@ -28,12 +28,17 @@ const CANDIDATE_KEY = "jobPicks_candidate_v1";
 const EXTERNAL_JOB_DRAFT_KEY = "jobPicks_externalJobDraft_v1";
 
 type SavedJob = Job & { savedAt: string };
-type CoverLetterCache = Record<string, { 
-  text: string; 
-  textShort?: string | null;
-  createdAt: string; 
-  lang?: "auto" | "en" 
-}>;
+type CoverLetterCache = Record<
+  string,
+  {
+    text: string;
+    textShort?: string | null;
+    textVeryShort?: string | null;
+    textCreative?: string | null;
+    createdAt: string;
+    lang?: "auto" | "en";
+  }
+>;
 
 const COVER_LETTERS_KEY = "jobPicks_coverLetters_v2";
 
@@ -105,7 +110,13 @@ function HomePageInner() {
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free");
   const [coverLetterByJobId, setCoverLetterByJobId] = useState<Record<string, string>>({});
   const [coverLetterShortByJobId, setCoverLetterShortByJobId] = useState<Record<string, string>>({});
-  const [selectedCoverLetterVersion, setSelectedCoverLetterVersion] = useState<Record<string, "long" | "short">>({});
+  const [coverLetterVeryShortByJobId, setCoverLetterVeryShortByJobId] = useState<Record<string, string>>({});
+  const [coverLetterCreativeByJobId, setCoverLetterCreativeByJobId] = useState<Record<string, string>>({});
+  const [selectedCoverLetterVersion, setSelectedCoverLetterVersion] = useState<
+    Record<string, "long" | "short" | "very_short" | "creative">
+  >({});
+  const [customInstructionsByJobId, setCustomInstructionsByJobId] = useState<Record<string, string>>({});
+  const [regeneratingVersion, setRegeneratingVersion] = useState<Record<string, "long" | "short" | "very_short" | "creative" | null>>({});
   const [coverLetterLoadingId, setCoverLetterLoadingId] = useState<string | null>(null);
   const [coverLetterErrorByJobId, setCoverLetterErrorByJobId] = useState<Record<string, string>>({});
   const [coverLetterLangModalOpen, setCoverLetterLangModalOpen] = useState(false);
@@ -116,6 +127,9 @@ function HomePageInner() {
 
   const [externalJobId, setExternalJobId] = useState<string>("");
   const [externalUrl, setExternalUrl] = useState<string>("");
+  const [externalJobTitle, setExternalJobTitle] = useState<string>("");
+  const [externalJobCompany, setExternalJobCompany] = useState<string>("");
+  const [externalJobLocation, setExternalJobLocation] = useState<string>("");
   const [externalJobDescription, setExternalJobDescription] = useState<string>("");
   const [externalJob, setExternalJob] = useState<ExternalJobDraft | null>(null);
   const [externalFormError, setExternalFormError] = useState<string | null>(null);
@@ -337,11 +351,15 @@ function HomePageInner() {
     if (!draft) return;
     setExternalJobId(String(draft.id || ""));
     setExternalUrl(String(draft.url || ""));
+    setExternalJobTitle(draft.title || "");
+    setExternalJobCompany(draft.company || "");
+    setExternalJobLocation(draft.location || "");
+    setExternalJobDescription(draft.description || "");
     setExternalJob(draft);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep draft URL up-to-date while user edits (best-effort)
+  // Keep draft up-to-date while user edits (best-effort)
   useEffect(() => {
     const url = externalUrl.trim();
     if (!url) return;
@@ -349,15 +367,19 @@ function HomePageInner() {
     writeExternalJobDraft({
       id,
       url,
-      title: externalJob?.title || "",
-      company: externalJob?.company || "",
-      location: externalJob?.location || "",
-      description: externalJob?.description || "",
+      title: externalJobTitle.trim() || externalJob?.title || "",
+      company: externalJobCompany.trim() || externalJob?.company || "",
+      location: externalJobLocation.trim() || externalJob?.location || "",
+      description: externalJobDescription.trim() || externalJob?.description || "",
       updatedAt: new Date().toISOString(),
     });
   }, [
     externalUrl,
     externalJobId,
+    externalJobTitle,
+    externalJobCompany,
+    externalJobLocation,
+    externalJobDescription,
     externalJob,
     writeExternalJobDraft,
   ]);
@@ -639,9 +661,16 @@ function HomePageInner() {
     // Cache hit
     const cache = readCoverLetterCache();
     if (cache[jobId]?.text && cache[jobId]?.lang === preferredLanguage) {
-      setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: cache[jobId].text }));
-      if (cache[jobId]?.textShort) {
-        setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: cache[jobId].textShort! }));
+      const cached = cache[jobId];
+      setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: cached.text }));
+      if (cached.textShort) {
+        setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: cached.textShort! }));
+      }
+      if (cached.textVeryShort) {
+        setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: cached.textVeryShort! }));
+      }
+      if (cached.textCreative) {
+        setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: cached.textCreative! }));
       }
       // Default to long version if not selected
       if (!selectedCoverLetterVersion[jobId]) {
@@ -692,21 +721,32 @@ function HomePageInner() {
       if (!text) throw new Error("Empty cover letter received");
 
       const textShort = typeof data.coverLetterShort === "string" ? data.coverLetterShort : null;
+      const textVeryShort =
+        typeof data.coverLetterVeryShort === "string" ? data.coverLetterVeryShort : null;
+      const textCreative = typeof data.coverLetterCreative === "string" ? data.coverLetterCreative : null;
 
       setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: text }));
       if (textShort) {
         setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: textShort }));
+      }
+      if (textVeryShort) {
+        setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: textVeryShort }));
+      }
+      if (textCreative) {
+        setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: textCreative }));
       }
       // Default to long version
       setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "long" }));
 
       const nextCache: CoverLetterCache = {
         ...cache,
-        [jobId]: { 
-          text, 
+        [jobId]: {
+          text,
           textShort: textShort || undefined,
-          createdAt: new Date().toISOString(), 
-          lang: preferredLanguage 
+          textVeryShort: textVeryShort || undefined,
+          textCreative: textCreative || undefined,
+          createdAt: new Date().toISOString(),
+          lang: preferredLanguage,
         },
       };
       writeCoverLetterCache(nextCache);
@@ -722,23 +762,33 @@ function HomePageInner() {
 
   const onCopyCoverLetter = useCallback(async (jobId: string) => {
     const version = selectedCoverLetterVersion[jobId] || "long";
-    const text = version === "short" 
-      ? coverLetterShortByJobId[jobId] 
-      : coverLetterByJobId[jobId];
+    const text =
+      version === "creative"
+        ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "very_short"
+        ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "short"
+        ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : coverLetterByJobId[jobId];
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
       // ignore
     }
-  }, [coverLetterByJobId, coverLetterShortByJobId, selectedCoverLetterVersion]);
+  }, [coverLetterByJobId, coverLetterShortByJobId, coverLetterVeryShortByJobId, coverLetterCreativeByJobId, selectedCoverLetterVersion, readCandidateProfile, parsedProfile]);
 
   const onDownloadCoverLetterDocx = useCallback(async (job: Job) => {
     const jobId = String(job.id);
     const version = selectedCoverLetterVersion[jobId] || "long";
-    const text = version === "short" 
-      ? coverLetterShortByJobId[jobId] 
-      : coverLetterByJobId[jobId];
+    const text =
+      version === "creative"
+        ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "very_short"
+        ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "short"
+        ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : coverLetterByJobId[jobId];
     if (!text) return;
     try {
       const fileName = `Cover letter - ${job.company || "Company"} - ${job.title || "Role"}`;
@@ -780,84 +830,106 @@ function HomePageInner() {
   const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto") => {
     setExternalFormError(null);
     const url = externalUrl.trim();
-    if (!url) {
-      setExternalFormError("Please paste a job link (URL).");
+    const description = externalJobDescription.trim();
+    const title = externalJobTitle.trim();
+    const company = externalJobCompany.trim();
+    
+    // Link is optional if description, title, or company is provided
+    if (!url && !description && !title && !company) {
+      setExternalFormError("Please provide either a job link or at least a job description/title/company.");
       return;
     }
-    if (!/^https?:\/\//i.test(url)) {
+    
+    // If URL is provided, it must be valid
+    if (url && !/^https?:\/\//i.test(url)) {
       setExternalFormError("Please paste a valid link starting with http:// or https://");
       return;
     }
 
-    const id = stableIdFromString("ext", url);
+    // Use URL for ID if available, otherwise use a combination of title/company
+    const id = url ? stableIdFromString("ext", url) : stableIdFromString("ext", `${title}_${company}_${Date.now()}`);
     setExternalJobId(id);
 
-    // Extract job details from the link server-side (best effort; some sites may block).
+    // Extract job details from the link server-side (only if URL is provided)
     let extractedTitle = "";
     let extractedCompany = "";
     let extractedLocation = "";
     let extractedDescription = "";
     setCoverLetterErrorByJobId((prev) => ({ ...prev, [id]: "" }));
-    setCoverLetterLoadingId(id);
-    try {
-      const res = await fetch("/api/extract-job", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to extract job details from the link");
+    
+    if (url) {
+      setCoverLetterLoadingId(id);
+      try {
+        const res = await fetch("/api/extract-job", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          // If extraction fails but we have manual data, continue anyway
+          if (!description && !title && !company) {
+            throw new Error(data?.error || "Failed to extract job details from the link");
+          }
+        } else {
+          const jobFromLink = data?.job;
+          extractedTitle = String(jobFromLink?.title || "");
+          extractedCompany = String(jobFromLink?.company || "");
+          extractedLocation = String(jobFromLink?.location || "");
+          extractedDescription = String(jobFromLink?.description || "");
+        }
+      } catch (e: any) {
+        // If we have manual data, continue anyway
+        if (!description && !title && !company) {
+          const msg =
+            e?.message ||
+            "We couldn't extract the job details from this link (the website may block automated access).";
+          setExternalFormError(msg);
+          setCoverLetterErrorByJobId((prev) => ({
+            ...prev,
+            [id]: msg,
+          }));
+          setCoverLetterLoadingId(null);
+          return;
+        }
+      } finally {
+        setCoverLetterLoadingId(null);
       }
-      const jobFromLink = data?.job;
-      extractedTitle = String(jobFromLink?.title || "");
-      extractedCompany = String(jobFromLink?.company || "");
-      extractedLocation = String(jobFromLink?.location || "");
-      extractedDescription = String(jobFromLink?.description || "");
-
-      // Use pasted description if available, otherwise use extracted description
-      const finalDescription = externalJobDescription.trim() || extractedDescription;
-
-      const draft: ExternalJobDraft = {
-        id,
-        url,
-        title: extractedTitle,
-        company: extractedCompany,
-        location: extractedLocation,
-        description: finalDescription,
-        updatedAt: new Date().toISOString(),
-      };
-      setExternalJob(draft);
-      writeExternalJobDraft(draft);
-    } catch (e: any) {
-      const msg =
-        e?.message ||
-        "We couldn't extract the job details from this link (the website may block automated access).";
-      setExternalFormError(msg);
-      setCoverLetterErrorByJobId((prev) => ({
-        ...prev,
-        [id]: msg,
-      }));
-      return;
-    } finally {
-      setCoverLetterLoadingId(null);
     }
 
-    // Use pasted description if available, otherwise use extracted description
-    const finalDescription = externalJobDescription.trim() || extractedDescription;
+    // Use manually entered fields if available, otherwise use extracted values
+    const finalTitle = title || extractedTitle.trim() || "Job opportunity";
+    const finalCompany = company || extractedCompany.trim() || "Company";
+    const finalLocation = externalJobLocation.trim() || extractedLocation.trim();
+    const finalDescription = description || extractedDescription;
+
+    const draft: ExternalJobDraft = {
+      id,
+      url: url || "",
+      title: finalTitle,
+      company: finalCompany,
+      location: finalLocation,
+      description: finalDescription,
+      updatedAt: new Date().toISOString(),
+    };
+    setExternalJob(draft);
+    writeExternalJobDraft(draft);
 
     const job: Job = {
       id,
-      title: extractedTitle.trim() || "Job opportunity",
-      company: extractedCompany.trim() || "Company",
-      location: extractedLocation.trim(),
+      title: finalTitle,
+      company: finalCompany,
+      location: finalLocation,
       url,
-      description: finalDescription.trim(),
+      description: finalDescription,
     };
 
     await onGenerateCoverLetter(job, preferredLanguage);
   }, [
     externalUrl,
+    externalJobTitle,
+    externalJobCompany,
+    externalJobLocation,
     externalJobDescription,
     onGenerateCoverLetter,
     writeExternalJobDraft,
@@ -1386,6 +1458,26 @@ function HomePageInner() {
           >
             CV
           </Link>
+          <Link
+            href="/cover-letters"
+            style={{
+              display: "inline-block",
+              padding: "10px 12px",
+              height: 42,
+              lineHeight: "22px",
+              borderRadius: 10,
+              border: "1px solid var(--jp-panel-border)",
+              backgroundColor: "var(--jp-panel-bg)",
+              color: "var(--jp-panel-fg)",
+              fontWeight: 800,
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+            }}
+            aria-label="Cover letter templates"
+            title="Cover letter templates"
+          >
+            Templates
+          </Link>
           <button
             onClick={editProfile}
             style={{
@@ -1665,17 +1757,25 @@ function HomePageInner() {
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
-                        {coverLetterShortByJobId[String(job.id)] && (
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {(coverLetterShortByJobId[String(job.id)] ||
+                          coverLetterVeryShortByJobId[String(job.id)] ||
+                          coverLetterCreativeByJobId[String(job.id)]) && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                             <button
-                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "long" }))}
+                              onClick={() =>
+                                setSelectedCoverLetterVersion((prev) => ({
+                                  ...prev,
+                                  [String(job.id)]: "long",
+                                }))
+                              }
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: 8,
                                 border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: (selectedCoverLetterVersion[String(job.id)] || "long") === "long" 
-                                  ? "rgba(168,85,247,0.2)" 
-                                  : "transparent",
+                                backgroundColor:
+                                  (selectedCoverLetterVersion[String(job.id)] || "long") === "long"
+                                    ? "rgba(168,85,247,0.2)"
+                                    : "transparent",
                                 color: "var(--jp-panel-fg)",
                                 fontSize: 11,
                                 fontWeight: 700,
@@ -1687,14 +1787,20 @@ function HomePageInner() {
                               Long
                             </button>
                             <button
-                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "short" }))}
+                              onClick={() =>
+                                setSelectedCoverLetterVersion((prev) => ({
+                                  ...prev,
+                                  [String(job.id)]: "short",
+                                }))
+                              }
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: 8,
                                 border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "short" 
-                                  ? "rgba(168,85,247,0.2)" 
-                                  : "transparent",
+                                backgroundColor:
+                                  selectedCoverLetterVersion[String(job.id)] === "short"
+                                    ? "rgba(168,85,247,0.2)"
+                                    : "transparent",
                                 color: "var(--jp-panel-fg)",
                                 fontSize: 11,
                                 fontWeight: 700,
@@ -1705,6 +1811,60 @@ function HomePageInner() {
                             >
                               Short
                             </button>
+                            {coverLetterVeryShortByJobId[String(job.id)] && (
+                              <button
+                                onClick={() =>
+                                  setSelectedCoverLetterVersion((prev) => ({
+                                    ...prev,
+                                    [String(job.id)]: "very_short",
+                                  }))
+                                }
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--jp-panel-border)",
+                                  backgroundColor:
+                                    selectedCoverLetterVersion[String(job.id)] === "very_short"
+                                      ? "rgba(168,85,247,0.2)"
+                                      : "transparent",
+                                  color: "var(--jp-panel-fg)",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  opacity: 0.9,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Very short
+                              </button>
+                            )}
+                            {coverLetterCreativeByJobId[String(job.id)] && (
+                              <button
+                                onClick={() =>
+                                  setSelectedCoverLetterVersion((prev) => ({
+                                    ...prev,
+                                    [String(job.id)]: "creative",
+                                  }))
+                                }
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--jp-panel-border)",
+                                  backgroundColor:
+                                    selectedCoverLetterVersion[String(job.id)] === "creative"
+                                      ? "rgba(251,146,60,0.2)"
+                                      : "transparent",
+                                  color: "var(--jp-panel-fg)",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  opacity: 0.9,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Creative
+                              </button>
+                            )}
                           </div>
                         )}
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1748,9 +1908,17 @@ function HomePageInner() {
                       </div>
                       <textarea
                         readOnly
-                        value={(selectedCoverLetterVersion[String(job.id)] || "long") === "short" 
-                          ? (coverLetterShortByJobId[String(job.id)] || coverLetterByJobId[String(job.id)])
-                          : coverLetterByJobId[String(job.id)]}
+                        value={
+                          (selectedCoverLetterVersion[String(job.id)] || "long") === "creative"
+                            ? coverLetterCreativeByJobId[String(job.id)] || coverLetterByJobId[String(job.id)]
+                            : (selectedCoverLetterVersion[String(job.id)] || "long") === "very_short"
+                            ? coverLetterVeryShortByJobId[String(job.id)] ||
+                              coverLetterShortByJobId[String(job.id)] ||
+                              coverLetterByJobId[String(job.id)]
+                            : (selectedCoverLetterVersion[String(job.id)] || "long") === "short"
+                            ? coverLetterShortByJobId[String(job.id)] || coverLetterByJobId[String(job.id)]
+                            : coverLetterByJobId[String(job.id)]
+                        }
                         style={{
                           marginTop: 10,
                           width: "100%",
@@ -1765,6 +1933,137 @@ function HomePageInner() {
                           resize: "vertical",
                         }}
                       />
+                      
+                      {/* Custom Instructions Section */}
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                            Custom instructions (optional)
+                          </label>
+                          <textarea
+                            value={customInstructionsByJobId[String(job.id)] || ""}
+                            onChange={(e) => setCustomInstructionsByJobId((prev) => ({ ...prev, [String(job.id)]: e.target.value }))}
+                            placeholder="e.g., 'Make it more formal', 'Add more technical details', 'Emphasize leadership experience', 'Make it shorter'..."
+                            style={{
+                              width: "100%",
+                              minHeight: 60,
+                              padding: 10,
+                              borderRadius: 10,
+                              border: "1px solid var(--jp-input-border)",
+                              backgroundColor: "var(--jp-input-bg)",
+                              color: "var(--jp-input-fg)",
+                              fontSize: 12,
+                              lineHeight: 1.5,
+                              resize: "vertical",
+                              fontFamily: "inherit",
+                            }}
+                          />
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const jobId = String(job.id);
+                            const version = selectedCoverLetterVersion[jobId] || "long";
+                            const instructions = customInstructionsByJobId[jobId]?.trim();
+                            
+                            if (!instructions) {
+                              setCoverLetterErrorByJobId((prev) => ({
+                                ...prev,
+                                [jobId]: "Please enter custom instructions first.",
+                              }));
+                              return;
+                            }
+                            
+                            setRegeneratingVersion((prev) => ({ ...prev, [jobId]: version }));
+                            setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
+                            
+                            try {
+                              const candidate = await readCandidateProfile();
+                              // Get the current cover letter text for the selected version
+                              const currentText =
+                                version === "creative"
+                                  ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
+                                  : version === "very_short"
+                                  ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+                                  : version === "short"
+                                  ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+                                  : coverLetterByJobId[jobId];
+                              
+                              const res = await fetch("/api/cover-letter", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  job: {
+                                    id: job.id,
+                                    title: job.title,
+                                    company: job.company,
+                                    location: job.location,
+                                    url: job.url,
+                                    description: job.description,
+                                  },
+                                  profile: parsedProfile,
+                                  candidate,
+                                  preferredLanguage: "auto",
+                                  customInstructions: instructions,
+                                  regenerateVersion: version,
+                                  currentCoverLetter: currentText,
+                                }),
+                              });
+                              
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                throw new Error(data?.error || "Failed to regenerate cover letter");
+                              }
+                              
+                              // Update the specific version
+                              if (version === "creative" && data.coverLetterCreative) {
+                                setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterCreative }));
+                              } else if (version === "very_short" && data.coverLetterVeryShort) {
+                                setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterVeryShort }));
+                              } else if (version === "short" && data.coverLetterShort) {
+                                setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterShort }));
+                              } else if (version === "long" && data.coverLetter) {
+                                setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: data.coverLetter }));
+                              }
+                              
+                              // Update cache
+                              const cache = readCoverLetterCache();
+                              const cached = cache[jobId] || { text: "", createdAt: new Date().toISOString(), lang: "auto" };
+                              const updatedCache: CoverLetterCache = {
+                                ...cache,
+                                [jobId]: {
+                                  ...cached,
+                                  text: version === "long" ? (data.coverLetter || cached.text) : cached.text,
+                                  textShort: version === "short" ? (data.coverLetterShort || cached.textShort) : cached.textShort,
+                                  textVeryShort: version === "very_short" ? (data.coverLetterVeryShort || cached.textVeryShort) : cached.textVeryShort,
+                                  textCreative: version === "creative" ? (data.coverLetterCreative || cached.textCreative) : cached.textCreative,
+                                },
+                              };
+                              writeCoverLetterCache(updatedCache);
+                            } catch (e: any) {
+                              setCoverLetterErrorByJobId((prev) => ({
+                                ...prev,
+                                [jobId]: e?.message || "Failed to regenerate cover letter",
+                              }));
+                            } finally {
+                              setRegeneratingVersion((prev) => ({ ...prev, [jobId]: null }));
+                            }
+                          }}
+                          disabled={!customInstructionsByJobId[String(job.id)]?.trim() || !!regeneratingVersion[String(job.id)]}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 10,
+                            border: "1px solid var(--jp-panel-border)",
+                            background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
+                            color: "white",
+                            fontWeight: 700,
+                            cursor: customInstructionsByJobId[String(job.id)]?.trim() && !regeneratingVersion[String(job.id)] ? "pointer" : "not-allowed",
+                            opacity: customInstructionsByJobId[String(job.id)]?.trim() && !regeneratingVersion[String(job.id)] ? 1 : 0.5,
+                            fontSize: 12,
+                          }}
+                        >
+                          {regeneratingVersion[String(job.id)] ? "Regenerating..." : "Regenerate with custom instructions"}
+                        </button>
+                      </div>
                     </div>
                   )}
                     </li>
@@ -1833,12 +2132,72 @@ function HomePageInner() {
 
                 <div style={{ marginTop: 12 }}>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
+                    Job title (optional - will be extracted from link if not provided)
+                  </label>
+                  <input
+                    value={externalJobTitle}
+                    onChange={(e) => setExternalJobTitle(e.target.value)}
+                    placeholder="e.g., Senior Software Engineer"
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid var(--jp-input-border)",
+                      backgroundColor: "var(--jp-input-bg)",
+                      color: "var(--jp-input-fg)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
+                    Company name (optional - will be extracted from link if not provided)
+                  </label>
+                  <input
+                    value={externalJobCompany}
+                    onChange={(e) => setExternalJobCompany(e.target.value)}
+                    placeholder="e.g., Tech Company Inc."
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid var(--jp-input-border)",
+                      backgroundColor: "var(--jp-input-bg)",
+                      color: "var(--jp-input-fg)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
+                    Location (optional - will be extracted from link if not provided)
+                  </label>
+                  <input
+                    value={externalJobLocation}
+                    onChange={(e) => setExternalJobLocation(e.target.value)}
+                    placeholder="e.g., Milan, Italy"
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid var(--jp-input-border)",
+                      backgroundColor: "var(--jp-input-bg)",
+                      color: "var(--jp-input-fg)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
                     Job description (optional - paste here if the link is not readable)
                   </label>
                   <textarea
                     value={externalJobDescription}
                     onChange={(e) => setExternalJobDescription(e.target.value)}
-                    placeholder="Paste the job description here if the link cannot be automatically extracted..."
+                    placeholder="Paste the complete job description here. This information will be used to generate a tailored cover letter."
                     style={{
                       width: "100%",
                       minHeight: 120,
@@ -1882,8 +2241,8 @@ function HomePageInner() {
                     title="Generate cover letter"
                   >
                     {coverLetterLoadingId &&
-                    coverLetterLoadingId === (externalJobId || stableIdFromString("ext", externalUrl.trim()))
-                      ? "Extracting & generating..."
+                    coverLetterLoadingId === (externalJobId || (externalUrl.trim() ? stableIdFromString("ext", externalUrl.trim()) : ""))
+                      ? (externalUrl.trim() ? "Extracting & generating..." : "Generating...")
                       : "Generate cover letter"}
                   </button>
                 </div>
@@ -1937,10 +2296,10 @@ function HomePageInner() {
                       )}
                       {!!text && (
                         <div style={{ marginTop: 10 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
                             <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
-                            {coverLetterShortByJobId[id] && (
-                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {(coverLetterShortByJobId[id] || coverLetterVeryShortByJobId[id] || coverLetterCreativeByJobId[id]) && (
+                              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                                 <button
                                   onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [id]: "long" }))}
                                   style={{
@@ -1979,6 +2338,60 @@ function HomePageInner() {
                                 >
                                   Short
                                 </button>
+                                {coverLetterVeryShortByJobId[id] && (
+                                  <button
+                                    onClick={() =>
+                                      setSelectedCoverLetterVersion((prev) => ({
+                                        ...prev,
+                                        [id]: "very_short",
+                                      }))
+                                    }
+                                    style={{
+                                      padding: "4px 10px",
+                                      borderRadius: 8,
+                                      border: "1px solid var(--jp-panel-border)",
+                                      backgroundColor:
+                                        selectedCoverLetterVersion[id] === "very_short"
+                                          ? "rgba(168,85,247,0.2)"
+                                          : "transparent",
+                                      color: "var(--jp-panel-fg)",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                      opacity: 0.9,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Very short
+                                  </button>
+                                )}
+                                {coverLetterCreativeByJobId[id] && (
+                                  <button
+                                    onClick={() =>
+                                      setSelectedCoverLetterVersion((prev) => ({
+                                        ...prev,
+                                        [id]: "creative",
+                                      }))
+                                    }
+                                    style={{
+                                      padding: "4px 10px",
+                                      borderRadius: 8,
+                                      border: "1px solid var(--jp-panel-border)",
+                                      backgroundColor:
+                                        selectedCoverLetterVersion[id] === "creative"
+                                          ? "rgba(251,146,60,0.2)"
+                                          : "transparent",
+                                      color: "var(--jp-panel-fg)",
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                      opacity: 0.9,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Creative
+                                  </button>
+                                )}
                               </div>
                             )}
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -2015,9 +2428,15 @@ function HomePageInner() {
                             </div>
                           </div>
                           <textarea
-                            value={(selectedCoverLetterVersion[id] || "long") === "short" 
-                              ? (coverLetterShortByJobId[id] || text)
-                              : text}
+                            value={
+                              (selectedCoverLetterVersion[id] || "long") === "creative"
+                                ? coverLetterCreativeByJobId[id] || text
+                                : (selectedCoverLetterVersion[id] || "long") === "very_short"
+                                ? coverLetterVeryShortByJobId[id] || coverLetterShortByJobId[id] || text
+                                : (selectedCoverLetterVersion[id] || "long") === "short"
+                                ? coverLetterShortByJobId[id] || text
+                                : text
+                            }
                             readOnly
                             style={{
                               marginTop: 10,

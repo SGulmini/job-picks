@@ -92,3 +92,43 @@ Je vous remercie de votre attention.
 Cordialement,
 {{CANDIDATE_FULL_NAME}}
 `.trim();
+
+// Very short version templates - ultra concise (1–2 very short paragraphs)
+export const COVER_LETTER_TEMPLATE_EN_VERY_SHORT = `
+Dear Hiring Manager,
+
+{{VERY_SHORT_BODY}}
+
+Sincerely,
+{{CANDIDATE_FULL_NAME}}
+`.trim();
+
+export const COVER_LETTER_TEMPLATE_FR_VERY_SHORT = `
+Madame, Monsieur,
+
+{{VERY_SHORT_BODY}}
+
+Cordialement,
+{{CANDIDATE_FULL_NAME}}
+`.trim();
+
+// Creative version templates - original, distinctive, memorable
+export const COVER_LETTER_TEMPLATE_EN_CREATIVE = `
+{{CREATIVE_OPENING}}
+
+{{CREATIVE_BODY}}
+
+{{CREATIVE_CLOSING}}
+
+{{CANDIDATE_FULL_NAME}}
+`.trim();
+
+export const COVER_LETTER_TEMPLATE_FR_CREATIVE = `
+{{CREATIVE_OPENING}}
+
+{{CREATIVE_BODY}}
+
+{{CREATIVE_CLOSING}}
+
+{{CANDIDATE_FULL_NAME}}
+`.trim();
