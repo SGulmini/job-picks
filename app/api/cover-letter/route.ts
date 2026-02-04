@@ -314,13 +314,29 @@ export async function POST(req: NextRequest) {
     const veryShortTemplate =
       targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_VERY_SHORT : COVER_LETTER_TEMPLATE_EN_VERY_SHORT;
     
+    // Helper to check if a text block is a "real paragraph" (not just a name, date, or address)
+    const isRealParagraph = (text: string): boolean => {
+      const trimmed = text.trim();
+      // Must be at least 60 characters to be a paragraph
+      if (trimmed.length < 60) return false;
+      // Must contain punctuation and be long enough, or have enough words
+      const hasSentence = /[.!?:,]/.test(trimmed) && trimmed.length >= 60;
+      const wordCount = trimmed.split(/\s+/).length;
+      const hasEnoughWords = wordCount >= 10;
+      return hasSentence || hasEnoughWords;
+    };
+
     // Parse template into paragraphs and build instructions if custom template with paragraph settings
     let paragraphInstructions = "";
     if (customTemplate && paragraphSettings && Object.keys(paragraphSettings).length > 0) {
-      const paragraphs = customTemplate
+      // Split and filter to get only real paragraphs (same logic as frontend)
+      const allBlocks = customTemplate
         .split(/\n\s*\n/)
         .map(p => p.trim())
         .filter(p => p.length > 0);
+      
+      // Filter to keep only real paragraphs (not names, dates, addresses)
+      const paragraphs = allBlocks.filter(block => isRealParagraph(block));
       
       if (paragraphs.length > 0) {
         const fixedParagraphs: number[] = [];
@@ -328,17 +344,20 @@ export async function POST(req: NextRequest) {
         
         for (const [indexStr, isFixed] of Object.entries(paragraphSettings)) {
           const index = parseInt(indexStr, 10);
-          if (isFixed) {
-            fixedParagraphs.push(index + 1); // 1-indexed for readability
-          } else {
-            adaptableParagraphs.push(index + 1);
+          // Only include if within valid range
+          if (index < paragraphs.length) {
+            if (isFixed) {
+              fixedParagraphs.push(index + 1); // 1-indexed for readability
+            } else {
+              adaptableParagraphs.push(index + 1);
+            }
           }
         }
         
         paragraphInstructions = [
           "",
           "PARAGRAPH INSTRUCTIONS:",
-          `The template has ${paragraphs.length} paragraphs. Follow these rules:`,
+          `The template has ${paragraphs.length} content paragraphs (excluding headers, names, dates, and addresses). Follow these rules:`,
           fixedParagraphs.length > 0 
             ? `- KEEP EXACTLY AS WRITTEN (do NOT modify): Paragraph(s) ${fixedParagraphs.join(", ")}. Copy these word-for-word from the template, only replacing obvious placeholders like names, dates, company names, and job titles.`
             : "",
@@ -346,7 +365,7 @@ export async function POST(req: NextRequest) {
             ? `- ADAPT TO THE POSITION: Paragraph(s) ${adaptableParagraphs.join(", ")}. Rewrite these to fit the specific job and candidate, while keeping the same general style and tone.`
             : "",
           "",
-          "TEMPLATE PARAGRAPHS (for reference):",
+          "CONTENT PARAGRAPHS (for reference - these are the actual body paragraphs to control):",
           ...paragraphs.map((p, i) => `[Paragraph ${i + 1}${fixedParagraphs.includes(i + 1) ? " - KEEP AS-IS" : " - ADAPT"}]:\n${p}`),
         ].filter(Boolean).join("\n");
       }

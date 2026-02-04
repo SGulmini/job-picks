@@ -202,20 +202,37 @@ function HomePageInner() {
     loadCoverLetterTemplates();
   }, [loadCoverLetterTemplates]);
 
-  // Parse the selected template into paragraphs
+  // Helper to check if a text block is a "real paragraph" (not just a name, date, or address)
+  const isRealParagraph = useCallback((text: string): boolean => {
+    const trimmed = text.trim();
+    // Must be at least 60 characters to be a paragraph
+    if (trimmed.length < 60) return false;
+    // Must contain at least one sentence-like structure (period, question mark, exclamation, or colon followed by more text)
+    // This filters out short lines like "John Doe", "Paris, January 2024", "123 Main Street, 75001 Paris"
+    const hasSentence = /[.!?:,]/.test(trimmed) && trimmed.length >= 60;
+    // Or has multiple words and is long enough to be meaningful content
+    const wordCount = trimmed.split(/\s+/).length;
+    const hasEnoughWords = wordCount >= 10;
+    return hasSentence || hasEnoughWords;
+  }, []);
+
+  // Parse the selected template into paragraphs (only real content paragraphs, not headers/names/dates)
   const selectedTemplateParagraphs = useMemo(() => {
     if (!selectedTemplateId) return [];
     const template = coverLetterTemplates.find(t => t.id === selectedTemplateId);
     if (!template) return [];
     
-    // Split by double newlines (paragraph breaks) or single newlines followed by empty lines
-    const paragraphs = template.content
+    // Split by double newlines (paragraph breaks)
+    const allBlocks = template.content
       .split(/\n\s*\n/)
       .map(p => p.trim())
       .filter(p => p.length > 0);
     
-    return paragraphs;
-  }, [selectedTemplateId, coverLetterTemplates]);
+    // Filter to keep only real paragraphs (not names, dates, addresses, short headers)
+    const realParagraphs = allBlocks.filter(block => isRealParagraph(block));
+    
+    return realParagraphs;
+  }, [selectedTemplateId, coverLetterTemplates, isRealParagraph]);
 
   // Reset paragraph settings when template changes
   useEffect(() => {
