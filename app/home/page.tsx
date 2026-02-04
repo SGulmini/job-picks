@@ -28,6 +28,17 @@ const CANDIDATE_KEY = "jobPicks_candidate_v1";
 const EXTERNAL_JOB_DRAFT_KEY = "jobPicks_externalJobDraft_v1";
 
 type SavedJob = Job & { savedAt: string };
+
+type CoverLetterTemplate = {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const TEMPLATES_STORAGE_KEY = "jobPicks_coverLetterTemplates_v1";
+
 type CoverLetterCache = Record<
   string,
   {
@@ -122,6 +133,8 @@ function HomePageInner() {
   const [coverLetterLangModalOpen, setCoverLetterLangModalOpen] = useState(false);
   const [coverLetterLangModalJob, setCoverLetterLangModalJob] = useState<Job | null>(null);
   const [coverLetterLangModalSource, setCoverLetterLangModalSource] = useState<"job" | "external">("job");
+  const [coverLetterTemplates, setCoverLetterTemplates] = useState<CoverLetterTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   const [profileRaw, setProfileRaw] = useState<string | null>(null);
 
@@ -142,6 +155,50 @@ function HomePageInner() {
       return null;
     }
   }, [profileRaw]);
+
+  // Load cover letter templates from Supabase or localStorage
+  const loadCoverLetterTemplates = useCallback(async () => {
+    try {
+      // Try to load from Supabase first
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        const { data, error } = await supabase
+          .from("cover_letter_templates")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("updated_at", { ascending: false });
+        
+        if (!error && data) {
+          const formatted = data.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            content: t.content,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at,
+          }));
+          setCoverLetterTemplates(formatted);
+          return;
+        }
+      }
+      
+      // Fallback to localStorage
+      const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setCoverLetterTemplates(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setCoverLetterTemplates([]);
+      }
+    } catch (e) {
+      console.error("Error loading cover letter templates:", e);
+      setCoverLetterTemplates([]);
+    }
+  }, []);
+
+  // Load templates on mount
+  useEffect(() => {
+    loadCoverLetterTemplates();
+  }, [loadCoverLetterTemplates]);
 
   const hasValidProfile = useMemo(() => {
     // Regola “tollerante”: basta che esista un oggetto non vuoto
@@ -645,7 +702,7 @@ function HomePageInner() {
     onDiscardJob(job);
   }, [onDiscardJob, readSavedJobs, writeSavedJobs]);
 
-  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto") => {
+  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto", customTemplate?: string) => {
     const jobId = String(job.id);
     setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
 
@@ -658,9 +715,9 @@ function HomePageInner() {
       return;
     }
 
-    // Cache hit
+    // Cache hit - skip cache if using a custom template
     const cache = readCoverLetterCache();
-    if (cache[jobId]?.text && cache[jobId]?.lang === preferredLanguage) {
+    if (!customTemplate && cache[jobId]?.text && cache[jobId]?.lang === preferredLanguage) {
       const cached = cache[jobId];
       setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: cached.text }));
       if (cached.textShort) {
@@ -705,6 +762,7 @@ function HomePageInner() {
           profile: parsedProfile,
           candidate,
           preferredLanguage,
+          customTemplate,
         }),
       });
 
@@ -827,7 +885,7 @@ function HomePageInner() {
     setCoverLetterLangModalOpen(true);
   }, []);
 
-  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto") => {
+  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string) => {
     setExternalFormError(null);
     const url = externalUrl.trim();
     const description = externalJobDescription.trim();
@@ -924,7 +982,7 @@ function HomePageInner() {
       description: finalDescription,
     };
 
-    await onGenerateCoverLetter(job, preferredLanguage);
+    await onGenerateCoverLetter(job, preferredLanguage, customTemplate);
   }, [
     externalUrl,
     externalJobTitle,
@@ -938,19 +996,25 @@ function HomePageInner() {
   const confirmCoverLetterLanguage = useCallback(
     async (lang: "auto" | "en") => {
       setCoverLetterLangModalOpen(false);
+      // Get the selected template content if one is selected
+      const customTemplate = selectedTemplateId 
+        ? coverLetterTemplates.find(t => t.id === selectedTemplateId)?.content 
+        : undefined;
+      
       try {
         if (coverLetterLangModalSource === "external") {
-          await onGenerateExternalCoverLetter(lang);
+          await onGenerateExternalCoverLetter(lang, customTemplate);
           return;
         }
         if (coverLetterLangModalJob) {
-          await onGenerateCoverLetter(coverLetterLangModalJob, lang);
+          await onGenerateCoverLetter(coverLetterLangModalJob, lang, customTemplate);
         }
       } finally {
         setCoverLetterLangModalJob(null);
+        setSelectedTemplateId(null); // Reset template selection after generating
       }
     },
-    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter]
+    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter, selectedTemplateId, coverLetterTemplates]
   );
 
   // 1) Gate di accesso: solo profilo (login già fatto prima)
@@ -2494,49 +2558,91 @@ function HomePageInner() {
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{ fontWeight: 900, fontSize: 14 }}>Cover letter language</div>
+            <div style={{ fontWeight: 900, fontSize: 14 }}>Cover letter options</div>
             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-              Choose the language for this cover letter.
+              Choose the language and optionally select a custom template.
             </div>
 
-            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-              <button
-                onClick={() => confirmCoverLetterLanguage("auto")}
+            {/* Template selector */}
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
+                Template
+              </label>
+              <select
+                value={selectedTemplateId || ""}
+                onChange={(e) => setSelectedTemplateId(e.target.value || null)}
                 style={{
                   width: "100%",
                   padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--jp-panel-border)",
-                  backgroundColor: "var(--jp-panel-bg)",
-                  color: "var(--jp-panel-fg)",
-                  fontWeight: 900,
+                  borderRadius: 10,
+                  border: "1px solid var(--jp-input-border)",
+                  backgroundColor: "var(--jp-input-bg)",
+                  color: "var(--jp-input-fg)",
+                  fontSize: 13,
                   cursor: "pointer",
-                  textAlign: "left",
                 }}
               >
-                Announcement language (recommended)
-              </button>
-              <button
-                onClick={() => confirmCoverLetterLanguage("en")}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--jp-panel-border)",
-                  background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
-                  color: "white",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                English
-              </button>
+                <option value="">Default template (auto-generated)</option>
+                {coverLetterTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+              {coverLetterTemplates.length === 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
+                  No custom templates. <Link href="/cover-letters" style={{ color: "var(--jp-accent)", textDecoration: "underline" }}>Create one</Link>
+                </div>
+              )}
+            </div>
+
+            {/* Language selector */}
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
+                Language
+              </label>
+              <div style={{ display: "grid", gap: 10 }}>
+                <button
+                  onClick={() => confirmCoverLetterLanguage("auto")}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px solid var(--jp-panel-border)",
+                    backgroundColor: "var(--jp-panel-bg)",
+                    color: "var(--jp-panel-fg)",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  Announcement language (recommended)
+                </button>
+                <button
+                  onClick={() => confirmCoverLetterLanguage("en")}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px solid var(--jp-panel-border)",
+                    background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
+                    color: "white",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  English
+                </button>
+              </div>
             </div>
 
             <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
               <button
-                onClick={() => setCoverLetterLangModalOpen(false)}
+                onClick={() => {
+                  setCoverLetterLangModalOpen(false);
+                  setSelectedTemplateId(null);
+                }}
                 style={{
                   padding: "8px 12px",
                   borderRadius: 10,
