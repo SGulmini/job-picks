@@ -314,16 +314,42 @@ export async function POST(req: NextRequest) {
     const veryShortTemplate =
       targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_VERY_SHORT : COVER_LETTER_TEMPLATE_EN_VERY_SHORT;
     
-    // Helper to check if a text block is a "real paragraph" (not just a name, date, or address)
+    // Helper to check if a text block is a "real paragraph" (not just personal info, dates, or addresses)
     const isRealParagraph = (text: string): boolean => {
       const trimmed = text.trim();
-      // Must be at least 60 characters to be a paragraph
-      if (trimmed.length < 60) return false;
-      // Must contain punctuation and be long enough, or have enough words
-      const hasSentence = /[.!?:,]/.test(trimmed) && trimmed.length >= 60;
+      const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      
+      // If it's a multi-line block where most lines are short, it's likely contact info
+      if (lines.length > 1) {
+        const shortLines = lines.filter(l => l.length < 50);
+        // If more than 60% of lines are short, it's probably contact info or header
+        if (shortLines.length / lines.length > 0.6) return false;
+      }
+      
+      // Check for contact info patterns (email, phone)
+      const hasEmail = /@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(trimmed);
+      const hasPhone = /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{2,4}[-.\s]?\d{2,4}/.test(trimmed);
+      
+      // If block is relatively short and contains email/phone, it's contact info
+      if ((hasEmail || hasPhone) && trimmed.length < 200) return false;
+      
+      // Must have at least one substantial sentence (a line with 80+ chars, or ends with sentence punctuation)
+      const hasSubstantialLine = lines.some(line => {
+        // Line is long enough to be a sentence
+        if (line.length >= 80) return true;
+        // Line ends with sentence-ending punctuation and has meaningful length
+        if (line.length >= 50 && /[.!?]$/.test(line)) return true;
+        return false;
+      });
+      
+      if (!hasSubstantialLine) return false;
+      
+      // Total content should be substantial
+      const totalLength = trimmed.length;
       const wordCount = trimmed.split(/\s+/).length;
-      const hasEnoughWords = wordCount >= 10;
-      return hasSentence || hasEnoughWords;
+      
+      // Need at least 100 characters and 15 words for a real paragraph
+      return totalLength >= 100 && wordCount >= 15;
     };
 
     // Parse template into paragraphs and build instructions if custom template with paragraph settings
