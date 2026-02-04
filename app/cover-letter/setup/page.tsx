@@ -53,6 +53,12 @@ function CoverLetterSetupInner() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  
+  // Generic presentation letter state
+  const [presentationLetter, setPresentationLetter] = useState("");
+  const [generatingPresentation, setGeneratingPresentation] = useState(false);
+  const [presentationError, setPresentationError] = useState<string | null>(null);
+  const [presentationCopied, setPresentationCopied] = useState(false);
 
   // Load existing profile from Supabase/localStorage
   useEffect(() => {
@@ -158,6 +164,60 @@ function CoverLetterSetupInner() {
       router.push(url.pathname + (url.search ? url.search : ""));
     } catch (e: any) {
       setError(e?.message || "Failed to save profile. Please try again.");
+    }
+  }
+
+  // Generate generic presentation letter
+  async function onGeneratePresentationLetter() {
+    if (!cvText.trim()) {
+      setPresentationError("Please upload your CV first.");
+      return;
+    }
+    
+    setPresentationError(null);
+    setGeneratingPresentation(true);
+    setPresentationLetter("");
+    
+    try {
+      const res = await fetch("/api/generate-presentation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cvText: cvText.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          city: city.trim(),
+          country: country.trim(),
+        }),
+      });
+      
+      const data = await res.json().catch(() => ({}));
+      
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to generate presentation letter");
+      }
+      
+      if (!data?.presentationLetter) {
+        throw new Error("No presentation letter returned");
+      }
+      
+      setPresentationLetter(data.presentationLetter);
+    } catch (e: any) {
+      setPresentationError(e?.message || "Failed to generate presentation letter");
+    } finally {
+      setGeneratingPresentation(false);
+    }
+  }
+
+  // Copy presentation letter to clipboard
+  async function copyPresentationToClipboard() {
+    if (!presentationLetter) return;
+    try {
+      await navigator.clipboard.writeText(presentationLetter);
+      setPresentationCopied(true);
+      setTimeout(() => setPresentationCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy:", e);
     }
   }
 
@@ -440,6 +500,165 @@ function CoverLetterSetupInner() {
                 resize: "vertical",
               }}
             />
+          )}
+        </div>
+      </div>
+
+      {/* Generic Presentation Letter Section */}
+      <div style={{ marginTop: 14 }}>
+        <div
+          style={{
+            padding: 14,
+            borderRadius: 14,
+            border: "1px solid var(--jp-panel-border)",
+            backgroundColor: "var(--jp-panel-bg)",
+            color: "var(--jp-panel-fg)",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>Generic Presentation Letter</div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                Generate a short, generic presentation letter based on your CV. You can use it as a starting point or save it as a template.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onGeneratePresentationLetter}
+              disabled={!cvText.trim() || generatingPresentation}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid var(--jp-panel-border)",
+                background: cvText.trim() && !generatingPresentation
+                  ? "linear-gradient(180deg, rgba(139,92,246,0.95), rgba(109,40,217,0.95))"
+                  : "var(--jp-panel-bg)",
+                color: cvText.trim() && !generatingPresentation ? "white" : "var(--jp-panel-fg)",
+                fontWeight: 800,
+                cursor: cvText.trim() && !generatingPresentation ? "pointer" : "not-allowed",
+                opacity: cvText.trim() && !generatingPresentation ? 1 : 0.5,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {generatingPresentation ? "Generating..." : presentationLetter ? "Regenerate" : "Generate"}
+            </button>
+          </div>
+
+          {presentationError && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 10,
+                border: "1px solid rgba(239,68,68,0.35)",
+                backgroundColor: "rgba(239,68,68,0.08)",
+                color: "#ef4444",
+                fontSize: 13,
+              }}
+            >
+              {presentationError}
+            </div>
+          )}
+
+          {presentationLetter && (
+            <div style={{ marginTop: 12 }}>
+              <textarea
+                value={presentationLetter}
+                onChange={(e) => setPresentationLetter(e.target.value)}
+                style={{
+                  width: "100%",
+                  minHeight: 200,
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "1px solid var(--jp-input-border)",
+                  backgroundColor: "var(--jp-input-bg)",
+                  color: "var(--jp-input-fg)",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+              />
+              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={copyPresentationToClipboard}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--jp-panel-border)",
+                    backgroundColor: presentationCopied ? "rgba(16,185,129,0.15)" : "var(--jp-panel-bg)",
+                    color: presentationCopied ? "#10b981" : "var(--jp-panel-fg)",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {presentationCopied ? "✓ Copied!" : "Copy to clipboard"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    // Save as template
+                    try {
+                      const { supabase } = await import("@/lib/supabaseClient");
+                      const { data: { session } } = await supabase.auth.getSession();
+                      const templateId = `template_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                      const now = new Date().toISOString();
+                      
+                      if (session?.user?.id) {
+                        await supabase.from("cover_letter_templates").insert({
+                          id: templateId,
+                          user_id: session.user.id,
+                          name: "Generic Presentation",
+                          content: presentationLetter,
+                          created_at: now,
+                          updated_at: now,
+                        });
+                      } else {
+                        // Fallback to localStorage
+                        const TEMPLATES_KEY = "jobPicks_coverLetterTemplates_v1";
+                        const stored = localStorage.getItem(TEMPLATES_KEY);
+                        const templates = stored ? JSON.parse(stored) : [];
+                        templates.push({
+                          id: templateId,
+                          name: "Generic Presentation",
+                          content: presentationLetter,
+                          createdAt: now,
+                          updatedAt: now,
+                        });
+                        localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+                      }
+                      
+                      alert("Saved as template! You can find it in Cover Letters.");
+                    } catch (e: any) {
+                      console.error("Error saving template:", e);
+                      alert("Failed to save template: " + (e?.message || "Unknown error"));
+                    }
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--jp-panel-border)",
+                    backgroundColor: "var(--jp-panel-bg)",
+                    color: "var(--jp-panel-fg)",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Save as template
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!presentationLetter && !presentationError && !generatingPresentation && (
+            <div style={{ marginTop: 12, fontSize: 13, opacity: 0.6 }}>
+              {cvText.trim() 
+                ? "Click \"Generate\" to create a short presentation letter based on your CV."
+                : "Upload your CV first to generate a presentation letter."}
+            </div>
           )}
         </div>
       </div>
