@@ -135,6 +135,8 @@ function HomePageInner() {
   const [coverLetterLangModalSource, setCoverLetterLangModalSource] = useState<"job" | "external">("job");
   const [coverLetterTemplates, setCoverLetterTemplates] = useState<CoverLetterTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  // Paragraph settings: true = keep as-is (fixed), false = adapt to position
+  const [templateParagraphSettings, setTemplateParagraphSettings] = useState<Record<number, boolean>>({});
 
   const [profileRaw, setProfileRaw] = useState<string | null>(null);
 
@@ -199,6 +201,35 @@ function HomePageInner() {
   useEffect(() => {
     loadCoverLetterTemplates();
   }, [loadCoverLetterTemplates]);
+
+  // Parse the selected template into paragraphs
+  const selectedTemplateParagraphs = useMemo(() => {
+    if (!selectedTemplateId) return [];
+    const template = coverLetterTemplates.find(t => t.id === selectedTemplateId);
+    if (!template) return [];
+    
+    // Split by double newlines (paragraph breaks) or single newlines followed by empty lines
+    const paragraphs = template.content
+      .split(/\n\s*\n/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+    
+    return paragraphs;
+  }, [selectedTemplateId, coverLetterTemplates]);
+
+  // Reset paragraph settings when template changes
+  useEffect(() => {
+    if (selectedTemplateId && selectedTemplateParagraphs.length > 0) {
+      // Default: all paragraphs are adaptable (false = adapt to position)
+      const defaultSettings: Record<number, boolean> = {};
+      selectedTemplateParagraphs.forEach((_, index) => {
+        defaultSettings[index] = false; // false = adapt, true = keep fixed
+      });
+      setTemplateParagraphSettings(defaultSettings);
+    } else {
+      setTemplateParagraphSettings({});
+    }
+  }, [selectedTemplateId, selectedTemplateParagraphs]);
 
   const hasValidProfile = useMemo(() => {
     // Regola “tollerante”: basta che esista un oggetto non vuoto
@@ -702,7 +733,7 @@ function HomePageInner() {
     onDiscardJob(job);
   }, [onDiscardJob, readSavedJobs, writeSavedJobs]);
 
-  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto", customTemplate?: string) => {
+  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>) => {
     const jobId = String(job.id);
     setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
 
@@ -763,6 +794,7 @@ function HomePageInner() {
           candidate,
           preferredLanguage,
           customTemplate,
+          paragraphSettings,
         }),
       });
 
@@ -885,7 +917,7 @@ function HomePageInner() {
     setCoverLetterLangModalOpen(true);
   }, []);
 
-  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string) => {
+  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>) => {
     setExternalFormError(null);
     const url = externalUrl.trim();
     const description = externalJobDescription.trim();
@@ -982,7 +1014,7 @@ function HomePageInner() {
       description: finalDescription,
     };
 
-    await onGenerateCoverLetter(job, preferredLanguage, customTemplate);
+    await onGenerateCoverLetter(job, preferredLanguage, customTemplate, paragraphSettings);
   }, [
     externalUrl,
     externalJobTitle,
@@ -1001,20 +1033,27 @@ function HomePageInner() {
         ? coverLetterTemplates.find(t => t.id === selectedTemplateId)?.content 
         : undefined;
       
+      // Build paragraph settings for the API
+      // Format: { paragraphIndex: true (fixed) | false (adapt) }
+      const paragraphSettings = selectedTemplateId && Object.keys(templateParagraphSettings).length > 0
+        ? templateParagraphSettings
+        : undefined;
+      
       try {
         if (coverLetterLangModalSource === "external") {
-          await onGenerateExternalCoverLetter(lang, customTemplate);
+          await onGenerateExternalCoverLetter(lang, customTemplate, paragraphSettings);
           return;
         }
         if (coverLetterLangModalJob) {
-          await onGenerateCoverLetter(coverLetterLangModalJob, lang, customTemplate);
+          await onGenerateCoverLetter(coverLetterLangModalJob, lang, customTemplate, paragraphSettings);
         }
       } finally {
         setCoverLetterLangModalJob(null);
         setSelectedTemplateId(null); // Reset template selection after generating
+        setTemplateParagraphSettings({}); // Reset paragraph settings
       }
     },
-    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter, selectedTemplateId, coverLetterTemplates]
+    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter, selectedTemplateId, coverLetterTemplates, templateParagraphSettings]
   );
 
   // 1) Gate di accesso: solo profilo (login già fatto prima)
@@ -2596,6 +2635,94 @@ function HomePageInner() {
               )}
             </div>
 
+            {/* Paragraph settings - only show when a template is selected */}
+            {selectedTemplateId && selectedTemplateParagraphs.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
+                  Paragraph Settings
+                </label>
+                <div style={{ fontSize: 11, marginBottom: 10, opacity: 0.7 }}>
+                  For each paragraph, choose whether to keep it exactly as written or adapt it to the job position.
+                </div>
+                <div 
+                  style={{ 
+                    maxHeight: 200, 
+                    overflowY: "auto",
+                    border: "1px solid var(--jp-input-border)",
+                    borderRadius: 10,
+                    backgroundColor: "var(--jp-input-bg)",
+                  }}
+                >
+                  {selectedTemplateParagraphs.map((paragraph, index) => (
+                    <div 
+                      key={index}
+                      style={{
+                        padding: "10px 12px",
+                        borderBottom: index < selectedTemplateParagraphs.length - 1 ? "1px solid var(--jp-input-border)" : "none",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div 
+                            style={{ 
+                              fontSize: 11, 
+                              fontWeight: 600, 
+                              marginBottom: 4,
+                              color: templateParagraphSettings[index] ? "var(--jp-accent)" : "var(--jp-panel-fg)",
+                              opacity: templateParagraphSettings[index] ? 1 : 0.7,
+                            }}
+                          >
+                            Paragraph {index + 1} {templateParagraphSettings[index] ? "(Keep as-is)" : "(Adapt to position)"}
+                          </div>
+                          <div 
+                            style={{ 
+                              fontSize: 11, 
+                              opacity: 0.8,
+                              whiteSpace: "pre-wrap",
+                              overflow: "hidden",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: "vertical",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {paragraph.length > 150 ? paragraph.substring(0, 150) + "..." : paragraph}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setTemplateParagraphSettings(prev => ({
+                              ...prev,
+                              [index]: !prev[index]
+                            }));
+                          }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 6,
+                            border: templateParagraphSettings[index] 
+                              ? "1px solid var(--jp-accent)" 
+                              : "1px solid var(--jp-input-border)",
+                            backgroundColor: templateParagraphSettings[index] 
+                              ? "rgba(59,130,246,0.15)" 
+                              : "transparent",
+                            color: templateParagraphSettings[index] 
+                              ? "var(--jp-accent)" 
+                              : "var(--jp-panel-fg)",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            fontSize: 10,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {templateParagraphSettings[index] ? "Fixed ✓" : "Adapt"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Language selector */}
             <div style={{ marginTop: 16 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
@@ -2642,6 +2769,7 @@ function HomePageInner() {
                 onClick={() => {
                   setCoverLetterLangModalOpen(false);
                   setSelectedTemplateId(null);
+                  setTemplateParagraphSettings({});
                 }}
                 style={{
                   padding: "8px 12px",

@@ -277,6 +277,7 @@ export async function POST(req: NextRequest) {
     const regenerateVersion = (body as any).regenerateVersion as "long" | "short" | "very_short" | "creative" | undefined;
     const currentCoverLetter = (body as any).currentCoverLetter as string | undefined;
     const customTemplate = (body as any).customTemplate as string | undefined;
+    const paragraphSettings = (body as any).paragraphSettings as Record<number, boolean> | undefined;
 
     if (!job?.title || !job?.company) {
       return NextResponse.json(
@@ -312,6 +313,44 @@ export async function POST(req: NextRequest) {
     const shortTemplate = targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_SHORT : COVER_LETTER_TEMPLATE_EN_SHORT;
     const veryShortTemplate =
       targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_VERY_SHORT : COVER_LETTER_TEMPLATE_EN_VERY_SHORT;
+    
+    // Parse template into paragraphs and build instructions if custom template with paragraph settings
+    let paragraphInstructions = "";
+    if (customTemplate && paragraphSettings && Object.keys(paragraphSettings).length > 0) {
+      const paragraphs = customTemplate
+        .split(/\n\s*\n/)
+        .map(p => p.trim())
+        .filter(p => p.length > 0);
+      
+      if (paragraphs.length > 0) {
+        const fixedParagraphs: number[] = [];
+        const adaptableParagraphs: number[] = [];
+        
+        for (const [indexStr, isFixed] of Object.entries(paragraphSettings)) {
+          const index = parseInt(indexStr, 10);
+          if (isFixed) {
+            fixedParagraphs.push(index + 1); // 1-indexed for readability
+          } else {
+            adaptableParagraphs.push(index + 1);
+          }
+        }
+        
+        paragraphInstructions = [
+          "",
+          "PARAGRAPH INSTRUCTIONS:",
+          `The template has ${paragraphs.length} paragraphs. Follow these rules:`,
+          fixedParagraphs.length > 0 
+            ? `- KEEP EXACTLY AS WRITTEN (do NOT modify): Paragraph(s) ${fixedParagraphs.join(", ")}. Copy these word-for-word from the template, only replacing obvious placeholders like names, dates, company names, and job titles.`
+            : "",
+          adaptableParagraphs.length > 0 
+            ? `- ADAPT TO THE POSITION: Paragraph(s) ${adaptableParagraphs.join(", ")}. Rewrite these to fit the specific job and candidate, while keeping the same general style and tone.`
+            : "",
+          "",
+          "TEMPLATE PARAGRAPHS (for reference):",
+          ...paragraphs.map((p, i) => `[Paragraph ${i + 1}${fixedParagraphs.includes(i + 1) ? " - KEEP AS-IS" : " - ADAPT"}]:\n${p}`),
+        ].filter(Boolean).join("\n");
+      }
+    }
     const creativeTemplate =
       targetLang.code === "fr" ? COVER_LETTER_TEMPLATE_FR_CREATIVE : COVER_LETTER_TEMPLATE_EN_CREATIVE;
 
@@ -391,6 +430,8 @@ export async function POST(req: NextRequest) {
         "",
         isCustomTemplate ? "USER'S CUSTOM TEMPLATE (follow this structure and style closely):" : "TEMPLATE (placeholders between {{...}} must be replaced or omitted if unknown):",
         template,
+        // Include paragraph-specific instructions if available (only for long version with custom template)
+        isCustomTemplate && paragraphInstructions ? paragraphInstructions : "",
         "",
         "PLACEHOLDER RULES:",
         `- {{DATE}}: use ${todayIso} (or a long-form date in the target language); keep it consistent.`,
