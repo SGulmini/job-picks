@@ -171,20 +171,68 @@ export default function CoverLettersPage() {
   }, [loadTemplates]);
 
   // Handle file import
-  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const [importLoading, setImportLoading] = useState(false);
+  
+  const handleFileImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const fileName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
-      setTemplateName(fileName);
-      setTemplateContent(content);
-      setEditingTemplate(null);
-      setShowCreateModal(true);
-    };
-    reader.readAsText(file);
+    const fileName = file.name.toLowerCase();
+    
+    // For .txt files, read directly
+    if (fileName.endsWith(".txt")) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const name = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+        setTemplateName(name);
+        setTemplateContent(content);
+        setEditingTemplate(null);
+        setShowCreateModal(true);
+        setError(null);
+      };
+      reader.onerror = () => {
+        setError("Failed to read file. Please try again.");
+      };
+      reader.readAsText(file);
+      return;
+    }
+    
+    // For .docx files, use the API endpoint
+    if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) {
+      setImportLoading(true);
+      setError(null);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const res = await fetch("/api/parse-template", {
+          method: "POST",
+          body: formData,
+        });
+        
+        const data = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to parse file");
+        }
+        
+        setTemplateName(data.fileName || file.name.replace(/\.[^/.]+$/, ""));
+        setTemplateContent(data.content);
+        setEditingTemplate(null);
+        setShowCreateModal(true);
+      } catch (err: any) {
+        setError(err?.message || "Failed to import file. Please try a .txt file instead.");
+      } finally {
+        setImportLoading(false);
+      }
+      return;
+    }
+    
+    setError("Unsupported file format. Please use .txt or .docx files.");
+    
+    // Reset the input so the same file can be selected again
+    e.target.value = "";
   }, []);
 
   // Handle create/edit
@@ -283,15 +331,17 @@ export default function CoverLettersPage() {
                 backgroundColor: "var(--jp-panel-bg)",
                 color: "var(--jp-panel-fg)",
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: importLoading ? "wait" : "pointer",
                 fontSize: 13,
+                opacity: importLoading ? 0.7 : 1,
               }}
             >
-              Import from file
+              {importLoading ? "Importing..." : "Import from file"}
               <input
                 type="file"
-                accept=".txt,.docx,.doc"
+                accept=".txt,.docx"
                 onChange={handleFileImport}
+                disabled={importLoading}
                 style={{ display: "none" }}
               />
             </label>
