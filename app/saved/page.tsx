@@ -4,6 +4,21 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { extractJobMetaFromDescription } from "@/lib/jobPostingMeta";
+import {
+  Bookmark,
+  Briefcase,
+  Building2,
+  ChevronLeft,
+  Copy,
+  Download,
+  ExternalLink,
+  FileText,
+  MapPin,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 
 type SavedJob = {
   id: string;
@@ -83,9 +98,8 @@ async function readCandidateProfile(): Promise<any | null> {
 }
 
 export default function SavedJobsPage() {
-  // Next.js production build requires useSearchParams() to be under a Suspense boundary.
   return (
-    <Suspense fallback={<main className="jp-page">Loading…</main>}>
+    <Suspense fallback={<main className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>Loading…</main>}>
       <SavedJobsPageInner />
     </Suspense>
   );
@@ -95,6 +109,7 @@ function SavedJobsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<SavedJob[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [coverLetterById, setCoverLetterById] = useState<Record<string, string>>({});
   const [coverLetterShortById, setCoverLetterShortById] = useState<Record<string, string>>({});
   const [coverLetterVeryShortById, setCoverLetterVeryShortById] = useState<Record<string, string>>({});
@@ -144,6 +159,17 @@ function SavedJobsPageInner() {
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
   }, [items]);
+
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return sorted;
+    const q = searchQuery.toLowerCase();
+    return sorted.filter(
+      (job) =>
+        job.title?.toLowerCase().includes(q) ||
+        job.company?.toLowerCase().includes(q) ||
+        job.location?.toLowerCase().includes(q)
+    );
+  }, [sorted, searchQuery]);
 
   const removeOne = (id: string) => {
     setItems((prev) => {
@@ -264,7 +290,9 @@ function SavedJobsPageInner() {
   const copy = async (id: string) => {
     const version = selectedCoverLetterVersion[id] || "long";
     const text =
-      version === "very_short"
+      version === "creative"
+        ? coverLetterCreativeById[id] || coverLetterById[id]
+        : version === "very_short"
         ? coverLetterVeryShortById[id] || coverLetterShortById[id] || coverLetterById[id]
         : version === "short"
         ? coverLetterShortById[id] || coverLetterById[id]
@@ -281,7 +309,9 @@ function SavedJobsPageInner() {
     const id = String(job.id);
     const version = selectedCoverLetterVersion[id] || "long";
     const text =
-      version === "very_short"
+      version === "creative"
+        ? coverLetterCreativeById[id] || coverLetterById[id]
+        : version === "very_short"
         ? coverLetterVeryShortById[id] || coverLetterShortById[id] || coverLetterById[id]
         : version === "short"
         ? coverLetterShortById[id] || coverLetterById[id]
@@ -312,557 +342,404 @@ function SavedJobsPageInner() {
     }
   };
 
+  const handleViewPosition = async (job: SavedJob, e: React.MouseEvent) => {
+    if (job.url && (job.url.includes('adzuna.com') || job.url.includes('adzuna.co.uk'))) {
+      e.preventDefault();
+      try {
+        const response = await fetch(`/api/resolve-job-url?url=${encodeURIComponent(job.url)}`);
+        const data = await response.json();
+        if (data.url && !data.isAdzunaRedirect) {
+          window.open(data.url, '_blank', 'noopener,noreferrer');
+        } else {
+          window.open(job.url, '_blank', 'noopener,noreferrer');
+        }
+      } catch (error) {
+        console.error('Failed to resolve job URL:', error);
+        window.open(job.url, '_blank', 'noopener,noreferrer');
+      }
+    }
+  };
+
   return (
-    <main className="jp-page" style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div className="jp-topbar">
-        <div>
-          <h1 style={{ margin: 0 }}>Saved jobs</h1>
-          <p style={{ margin: "6px 0 0 0", opacity: 0.75, fontSize: 13 }}>
-            Positions you saved to apply later (even on another day).
-          </p>
-        </div>
-        <div className="jp-topbar-actions">
-          <Link
-            href="/home"
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              textDecoration: "none",
-              fontWeight: 700,
-              fontSize: 13,
-              whiteSpace: "nowrap",
-            }}
-          >
-            ← Back to picks
-          </Link>
-          <Link
-            href={`/cover-letter/setup?returnTo=${encodeURIComponent("/saved")}`}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              textDecoration: "none",
-              fontWeight: 700,
-              fontSize: 13,
-              whiteSpace: "nowrap",
-            }}
-            aria-label="CV and cover letter setup"
-            title="CV and cover letter setup"
-          >
-            CV
-          </Link>
+    <div className="min-h-screen" style={{ background: "var(--background)" }}>
+      {/* Header */}
+      <header
+        className="sticky top-0 z-40 border-b px-4 py-4"
+        style={{
+          background: "var(--card)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <div className="mx-auto flex max-w-5xl items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/home"
+              className="flex items-center gap-2 text-sm font-medium transition-opacity hover:opacity-80"
+              style={{ color: "var(--muted-foreground)" }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Back to picks
+            </Link>
+            <div className="h-6 w-px" style={{ background: "var(--border)" }} />
+            <h1 className="flex items-center gap-2 text-lg font-bold" style={{ color: "var(--foreground)" }}>
+              <Bookmark className="h-5 w-5" style={{ color: "var(--primary)" }} />
+              Saved Jobs
+            </h1>
+          </div>
           <button
             onClick={clearAll}
             disabled={sorted.length === 0}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "transparent",
-              color: "var(--jp-panel-fg)",
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: sorted.length === 0 ? "not-allowed" : "pointer",
-              opacity: sorted.length === 0 ? 0.5 : 0.9,
-              whiteSpace: "nowrap",
-            }}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ color: sorted.length === 0 ? "var(--muted-foreground)" : "#ef4444" }}
           >
+            <Trash2 className="h-4 w-4" />
             Clear all
           </button>
         </div>
-      </div>
+      </header>
 
-      <div style={{ marginTop: 18 }}>
-        {sorted.length === 0 ? (
-          <div
-            style={{
-              padding: 16,
-              borderRadius: 12,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              opacity: 0.9,
-            }}
-          >
-            No saved jobs yet. On the picks page, use “Save for later”.
-          </div>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {sorted.map((job) => (
-              <li
-                key={job.id}
-                style={{
-                  marginBottom: 14,
-                  padding: 16,
-                  borderRadius: 12,
-                  border: "1px solid var(--jp-panel-border)",
-                  backgroundColor: "var(--jp-panel-bg)",
-                  color: "var(--jp-panel-fg)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 16, lineHeight: 1.2 }}>
-                      {job.title}
-                    </div>
-                    <div style={{ marginTop: 6, opacity: 0.85 }}>{job.company}</div>
-                    {(() => {
-                      const meta = extractJobMetaFromDescription(job.description);
-                      const showLang = meta.language && meta.language !== "N/A";
-                      const showAct = meta.activityRate && meta.activityRate !== "N/A";
-                      if (!showLang && !showAct) return null;
-                      return (
-                        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {showLang && (
-                            <div
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: "var(--jp-input-bg)",
-                                color: "var(--jp-input-fg)",
-                                fontSize: 12,
-                                fontWeight: 800,
-                              }}
-                            >
-                              Language: {meta.language}
-                            </div>
-                          )}
-                          {showAct && (
-                            <div
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: "var(--jp-input-bg)",
-                                color: "var(--jp-input-fg)",
-                                fontSize: 12,
-                                fontWeight: 800,
-                              }}
-                            >
-                              Activity: {meta.activityRate}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    {job.location && (
-                      <div style={{ marginTop: 6, opacity: 0.75, fontSize: 13 }}>📍 {job.location}</div>
-                    )}
-                    <div style={{ marginTop: 8, opacity: 0.65, fontSize: 12 }}>
-                      Saved: {new Date(job.savedAt).toLocaleString()}
-                    </div>
-                  </div>
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        {/* Page header */}
+        <div className="mb-6">
+          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+            {sorted.length === 0
+              ? "No saved jobs yet. Save jobs from the picks page to apply later."
+              : `You have ${sorted.length} saved job${sorted.length === 1 ? "" : "s"}`}
+          </p>
+        </div>
 
-                  <div className="jp-job-actions" style={{ justifyContent: "flex-end" }}>
-                    <a
-                      href={job.url || "#"}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      onClick={async (e) => {
-                        // If the URL contains adzuna.com, try to resolve it to the final destination
-                        if (job.url && (job.url.includes('adzuna.com') || job.url.includes('adzuna.co.uk'))) {
-                          e.preventDefault();
-                          try {
-                            const response = await fetch(`/api/resolve-job-url?url=${encodeURIComponent(job.url)}`);
-                            const data = await response.json();
-                            if (data.url && !data.isAdzunaRedirect) {
-                              // Open the resolved direct URL
-                              window.open(data.url, '_blank', 'noopener,noreferrer');
-                            } else {
-                              // If we can't resolve it, just open the original URL
-                              window.open(job.url, '_blank', 'noopener,noreferrer');
-                            }
-                          } catch (error) {
-                            // If resolution fails, open the original URL
-                            console.error('Failed to resolve job URL:', error);
-                            window.open(job.url, '_blank', 'noopener,noreferrer');
-                          }
-                        }
-                        // If it's not an Adzuna URL, let the default link behavior proceed
-                      }}
-                      style={{
-                        display: "inline-block",
-                        padding: "8px 14px",
-                        background: "linear-gradient(180deg, rgba(16,185,129,0.95), rgba(5,150,105,0.95))",
-                        color: "white",
-                        textDecoration: "none",
-                        borderRadius: 10,
-                        fontSize: 13,
-                        fontWeight: 800,
-                        border: "1px solid var(--jp-panel-border)",
-                        boxShadow: "var(--jp-shadow)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      View position →
-                    </a>
-                    <button
-                      onClick={() => removeOne(job.id)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-panel-border)",
-                        backgroundColor: "transparent",
-                        color: "var(--jp-panel-fg)",
-                        fontSize: 13,
-                        fontWeight: 800,
-                        cursor: "pointer",
-                        opacity: 0.9,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Remove
-                    </button>
-                    <button
-                      onClick={() => {
-                        setCoverLetterLangModalJob(job);
-                        setCoverLetterLangModalOpen(true);
-                      }}
-                      disabled={loadingId === String(job.id)}
-                      className="jp-primary-action"
-                      style={{
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-panel-border)",
-                        background: "linear-gradient(180deg, rgba(168,85,247,0.95), rgba(79,70,229,0.95))",
-                        color: "white",
-                        fontSize: 13,
-                        fontWeight: 900,
-                        cursor: loadingId === String(job.id) ? "not-allowed" : "pointer",
-                        opacity: loadingId === String(job.id) ? 0.65 : 1,
-                        boxShadow: "var(--jp-shadow)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {loadingId === String(job.id) ? "Generating..." : "Generate cover letter"}
-                    </button>
-                  </div>
+        {sorted.length > 0 && (
+          <>
+            {/* Search bar */}
+            <div
+              className="mb-6 flex items-center gap-3 rounded-xl p-4"
+              style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+            >
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--muted-foreground)" }} />
+                <input
+                  type="text"
+                  placeholder="Search saved jobs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none transition-all"
+                  style={{
+                    background: "var(--secondary)",
+                    color: "var(--foreground)",
+                    border: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Jobs list */}
+            <div className="space-y-4">
+              {filtered.length === 0 ? (
+                <div
+                  className="rounded-xl p-8 text-center"
+                  style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+                >
+                  <Search className="mx-auto h-12 w-12 mb-4" style={{ color: "var(--muted-foreground)" }} />
+                  <p className="font-medium" style={{ color: "var(--foreground)" }}>No jobs match your search</p>
+                  <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>Try a different search term</p>
                 </div>
+              ) : (
+                filtered.map((job) => {
+                  const meta = extractJobMetaFromDescription(job.description);
+                  const showLang = meta.language && meta.language !== "N/A";
+                  const showAct = meta.activityRate && meta.activityRate !== "N/A";
+                  const jobId = String(job.id);
 
-                {job.description && (
-                  <div style={{ marginTop: 12, fontSize: 13, opacity: 0.8, lineHeight: 1.5 }}>
-                    {job.description.substring(0, 220)}
-                    {job.description.length > 220 && "..."}
-                  </div>
-                )}
-
-                {!!errorById[String(job.id)] && (
-                  <div style={{ marginTop: 10, color: "#ef4444", fontWeight: 700, fontSize: 13 }}>
-                    {errorById[String(job.id)]}
-                  </div>
-                )}
-
-                {!!coverLetterById[String(job.id)] && (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: 12,
-                      borderRadius: 12,
-                      border: "1px solid var(--jp-panel-border)",
-                      backgroundColor: "rgba(0,0,0,0.02)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
-                      {(coverLetterShortById[String(job.id)] ||
-                        coverLetterVeryShortById[String(job.id)] ||
-                        coverLetterCreativeById[String(job.id)]) && (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "long" }))}
-                            style={{
-                              padding: "4px 10px",
-                              borderRadius: 8,
-                              border: "1px solid var(--jp-panel-border)",
-                              backgroundColor: (selectedCoverLetterVersion[String(job.id)] || "long") === "long" 
-                                ? "rgba(168,85,247,0.2)" 
-                                : "transparent",
-                              color: "var(--jp-panel-fg)",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              opacity: 0.9,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Long
-                          </button>
-                          {coverLetterShortById[String(job.id)] && (
-                            <button
-                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "short" }))}
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "short" 
-                                  ? "rgba(168,85,247,0.2)" 
-                                  : "transparent",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                opacity: 0.9,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Short
-                            </button>
-                          )}
-                          {coverLetterVeryShortById[String(job.id)] && (
-                            <button
-                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "very_short" }))}
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "very_short" 
-                                  ? "rgba(168,85,247,0.2)" 
-                                  : "transparent",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                opacity: 0.9,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Very short
-                            </button>
-                          )}
-                          {coverLetterCreativeById[String(job.id)] && (
-                            <button
-                              onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [String(job.id)]: "creative" }))}
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor: selectedCoverLetterVersion[String(job.id)] === "creative" 
-                                  ? "rgba(251,146,60,0.2)" 
-                                  : "transparent",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                opacity: 0.9,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Creative
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        {(coverLetterShortById[String(job.id)] ||
-                          coverLetterVeryShortById[String(job.id)]) && (
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <button
-                              onClick={() =>
-                                setSelectedCoverLetterVersion((p) => ({
-                                  ...p,
-                                  [String(job.id)]: "long",
-                                }))
-                              }
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor:
-                                  (selectedCoverLetterVersion[String(job.id)] || "long") === "long"
-                                    ? "rgba(168,85,247,0.2)"
-                                    : "transparent",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                opacity: 0.9,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Long
-                            </button>
-                            <button
-                              onClick={() =>
-                                setSelectedCoverLetterVersion((p) => ({
-                                  ...p,
-                                  [String(job.id)]: "short",
-                                }))
-                              }
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--jp-panel-border)",
-                                backgroundColor:
-                                  selectedCoverLetterVersion[String(job.id)] === "short"
-                                    ? "rgba(168,85,247,0.2)"
-                                    : "transparent",
-                                color: "var(--jp-panel-fg)",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                                opacity: 0.9,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Short
-                            </button>
-                            {coverLetterVeryShortById[String(job.id)] && (
-                              <button
-                                onClick={() =>
-                                  setSelectedCoverLetterVersion((p) => ({
-                                    ...p,
-                                    [String(job.id)]: "very_short",
-                                  }))
-                                }
-                                style={{
-                                  padding: "4px 10px",
-                                  borderRadius: 8,
-                                  border: "1px solid var(--jp-panel-border)",
-                                  backgroundColor:
-                                    selectedCoverLetterVersion[String(job.id)] === "very_short"
-                                      ? "rgba(168,85,247,0.2)"
-                                      : "transparent",
-                                  color: "var(--jp-panel-fg)",
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  opacity: 0.9,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                Very short
-                              </button>
+                  return (
+                    <div
+                      key={job.id}
+                      className="rounded-xl p-5 transition-all"
+                      style={{
+                        border: "1px solid var(--border)",
+                        background: "var(--card)",
+                      }}
+                    >
+                      {/* Job header */}
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-bold" style={{ color: "var(--foreground)" }}>
+                            {job.title}
+                          </h3>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                            <span className="flex items-center gap-1.5">
+                              <Building2 className="h-4 w-4" />
+                              {job.company}
+                            </span>
+                            {job.location && (
+                              <span className="flex items-center gap-1.5">
+                                <MapPin className="h-4 w-4" />
+                                {job.location}
+                              </span>
                             )}
                           </div>
-                        )}
-                        <button
-                          onClick={() => downloadDocx(job)}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 10,
-                            border: "1px solid var(--jp-panel-border)",
-                            backgroundColor: "transparent",
-                            color: "var(--jp-panel-fg)",
-                            fontSize: 12,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            opacity: 0.9,
-                            whiteSpace: "nowrap",
-                          }}
-                          aria-label="Download as .docx"
-                          title="Download as .docx"
-                        >
-                          Download .docx
-                        </button>
-                        <button
-                          onClick={() => copy(String(job.id))}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 10,
-                            border: "1px solid var(--jp-panel-border)",
-                            backgroundColor: "transparent",
-                            color: "var(--jp-panel-fg)",
-                            fontSize: 12,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            opacity: 0.9,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Copy
-                        </button>
+
+                          {/* Tags */}
+                          {(showLang || showAct) && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {showLang && (
+                                <span
+                                  className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                                  style={{
+                                    background: "var(--secondary)",
+                                    color: "var(--foreground)",
+                                  }}
+                                >
+                                  🌐 {meta.language}
+                                </span>
+                              )}
+                              {showAct && (
+                                <span
+                                  className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                                  style={{
+                                    background: "var(--secondary)",
+                                    color: "var(--foreground)",
+                                  }}
+                                >
+                                  ⏱️ {meta.activityRate}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Saved date */}
+                          <p className="mt-3 text-xs" style={{ color: "var(--muted-foreground)" }}>
+                            Saved {new Date(job.savedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href={job.url || "#"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            onClick={(e) => handleViewPosition(job, e)}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                            style={{
+                              background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                            }}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            View position
+                          </a>
+                          <button
+                            onClick={() => removeOne(job.id)}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+                            style={{
+                              background: "var(--secondary)",
+                              color: "var(--foreground)",
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                            Remove
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCoverLetterLangModalJob(job);
+                              setCoverLetterLangModalOpen(true);
+                            }}
+                            disabled={loadingId === jobId}
+                            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed gradient-accent"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            {loadingId === jobId ? "Generating..." : "Generate cover letter"}
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Description preview */}
+                      {job.description && (
+                        <p className="mt-4 text-sm line-clamp-2" style={{ color: "var(--muted-foreground)" }}>
+                          {job.description.substring(0, 220)}
+                          {job.description.length > 220 && "..."}
+                        </p>
+                      )}
+
+                      {/* Error message */}
+                      {!!errorById[jobId] && (
+                        <div className="mt-4 p-4 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">
+                          {errorById[jobId]}
+                        </div>
+                      )}
+
+                      {/* Cover letter */}
+                      {!!coverLetterById[jobId] && (
+                        <div
+                          className="mt-4 p-4 rounded-xl"
+                          style={{ background: "var(--secondary)" }}
+                        >
+                          <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-5 w-5" style={{ color: "var(--primary)" }} />
+                              <span className="font-bold">Cover Letter</span>
+                            </div>
+
+                            {/* Version selector */}
+                            {(coverLetterShortById[jobId] || coverLetterVeryShortById[jobId] || coverLetterCreativeById[jobId]) && (
+                              <div className="flex gap-1 items-center p-1 rounded-lg" style={{ background: "var(--card)" }}>
+                                <button
+                                  onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "long" }))}
+                                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                    (selectedCoverLetterVersion[jobId] || "long") === "long"
+                                      ? "gradient-primary text-white"
+                                      : "hover:bg-white/10"
+                                  }`}
+                                >
+                                  Long
+                                </button>
+                                {coverLetterShortById[jobId] && (
+                                  <button
+                                    onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "short" }))}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                      selectedCoverLetterVersion[jobId] === "short"
+                                        ? "gradient-primary text-white"
+                                        : "hover:bg-white/10"
+                                    }`}
+                                  >
+                                    Short
+                                  </button>
+                                )}
+                                {coverLetterVeryShortById[jobId] && (
+                                  <button
+                                    onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "very_short" }))}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                      selectedCoverLetterVersion[jobId] === "very_short"
+                                        ? "gradient-primary text-white"
+                                        : "hover:bg-white/10"
+                                    }`}
+                                  >
+                                    Very Short
+                                  </button>
+                                )}
+                                {coverLetterCreativeById[jobId] && (
+                                  <button
+                                    onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [jobId]: "creative" }))}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                      selectedCoverLetterVersion[jobId] === "creative"
+                                        ? "bg-orange-500/20 text-orange-400"
+                                        : "hover:bg-white/10"
+                                    }`}
+                                  >
+                                    ✨ Creative
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Copy & Download */}
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => copy(jobId)}
+                                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-all hover:opacity-90 gradient-primary text-white"
+                              >
+                                <Copy className="h-4 w-4" />
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => downloadDocx(job)}
+                                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors"
+                                style={{
+                                  background: "var(--card)",
+                                  color: "var(--foreground)",
+                                }}
+                              >
+                                <Download className="h-4 w-4" />
+                                .docx
+                              </button>
+                            </div>
+                          </div>
+
+                          <textarea
+                            readOnly
+                            value={
+                              (selectedCoverLetterVersion[jobId] || "long") === "creative"
+                                ? coverLetterCreativeById[jobId] || coverLetterById[jobId]
+                                : (selectedCoverLetterVersion[jobId] || "long") === "very_short"
+                                ? coverLetterVeryShortById[jobId] || coverLetterShortById[jobId] || coverLetterById[jobId]
+                                : (selectedCoverLetterVersion[jobId] || "long") === "short"
+                                ? coverLetterShortById[jobId] || coverLetterById[jobId]
+                                : coverLetterById[jobId]
+                            }
+                            className="w-full p-4 rounded-lg text-sm leading-relaxed resize-y"
+                            style={{
+                              minHeight: 200,
+                              border: "1px solid var(--border)",
+                              background: "var(--card)",
+                              color: "var(--foreground)",
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <textarea
-                      readOnly
-                      value={
-                        (selectedCoverLetterVersion[String(job.id)] || "long") === "very_short"
-                          ? coverLetterVeryShortById[String(job.id)] ||
-                            coverLetterShortById[String(job.id)] ||
-                            coverLetterById[String(job.id)]
-                          : (selectedCoverLetterVersion[String(job.id)] || "long") === "short"
-                          ? coverLetterShortById[String(job.id)] || coverLetterById[String(job.id)]
-                          : coverLetterById[String(job.id)]
-                      }
-                      style={{
-                        marginTop: 10,
-                        width: "100%",
-                        minHeight: 220,
-                        padding: 12,
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-input-border)",
-                        backgroundColor: "var(--jp-input-bg)",
-                        color: "var(--jp-input-fg)",
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        resize: "vertical",
-                      }}
-                    />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  );
+                })
+              )}
+            </div>
+          </>
         )}
-      </div>
+
+        {/* Empty state */}
+        {sorted.length === 0 && (
+          <div
+            className="rounded-xl p-12 text-center"
+            style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+          >
+            <Bookmark className="mx-auto h-16 w-16 mb-4" style={{ color: "var(--muted-foreground)" }} />
+            <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground)" }}>No saved jobs yet</h2>
+            <p className="text-sm mb-6" style={{ color: "var(--muted-foreground)" }}>
+              Save jobs from the picks page to apply later, even on another day.
+            </p>
+            <Link
+              href="/home"
+              className="inline-flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 gradient-primary"
+            >
+              <Briefcase className="h-4 w-4" />
+              Browse job picks
+            </Link>
+          </div>
+        )}
+      </main>
 
       {/* Cover letter language modal */}
       {coverLetterLangModalOpen && (
         <div
           role="dialog"
           aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0,0,0,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-            zIndex: 50,
-          }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
           onMouseDown={() => setCoverLetterLangModalOpen(false)}
         >
           <div
+            className="w-full max-w-md rounded-2xl p-6"
             style={{
-              width: "min(520px, 100%)",
-              borderRadius: 16,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              boxShadow: "var(--jp-shadow)",
-              padding: 16,
+              background: "var(--card)",
+              border: "1px solid var(--border)",
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{ fontWeight: 900, fontSize: 14 }}>Cover letter language</div>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+            <h3 className="text-lg font-bold mb-2" style={{ color: "var(--foreground)" }}>
+              Cover letter language
+            </h3>
+            <p className="text-sm mb-6" style={{ color: "var(--muted-foreground)" }}>
               Choose the language for this cover letter.
-            </div>
+            </p>
 
-            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            <div className="space-y-3">
               <button
                 onClick={async () => {
                   setCoverLetterLangModalOpen(false);
                   if (coverLetterLangModalJob) await generate(coverLetterLangModalJob, "auto");
                   setCoverLetterLangModalJob(null);
                 }}
+                className="w-full p-4 rounded-xl text-left font-semibold transition-colors"
                 style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--jp-panel-border)",
-                  backgroundColor: "var(--jp-panel-bg)",
-                  color: "var(--jp-panel-fg)",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  textAlign: "left",
+                  background: "var(--secondary)",
+                  color: "var(--foreground)",
                 }}
               >
                 Announcement language (recommended)
@@ -873,35 +750,20 @@ function SavedJobsPageInner() {
                   if (coverLetterLangModalJob) await generate(coverLetterLangModalJob, "en");
                   setCoverLetterLangModalJob(null);
                 }}
+                className="w-full p-4 rounded-xl text-left font-semibold text-white"
                 style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--jp-panel-border)",
-                  background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
-                  color: "white",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  textAlign: "left",
+                  background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
                 }}
               >
                 English
               </button>
             </div>
 
-            <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+            <div className="mt-6 flex justify-end">
               <button
                 onClick={() => setCoverLetterLangModalOpen(false)}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  border: "1px solid var(--jp-panel-border)",
-                  backgroundColor: "transparent",
-                  color: "var(--jp-panel-fg)",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  opacity: 0.9,
-                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: "var(--muted-foreground)" }}
               >
                 Cancel
               </button>
@@ -909,7 +771,6 @@ function SavedJobsPageInner() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
-

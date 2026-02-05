@@ -5,6 +5,25 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { extractJobMetaFromDescription } from "@/lib/jobPostingMeta";
+import {
+  Briefcase,
+  Bookmark,
+  FileText,
+  LayoutTemplate,
+  Settings,
+  LogOut,
+  Search,
+  ExternalLink,
+  X,
+  MapPin,
+  Building2,
+  Sparkles,
+  Crown,
+  Inbox,
+  Copy,
+  Download,
+  ChevronDown,
+} from "lucide-react";
 
 type Job = {
   id: string;
@@ -115,6 +134,7 @@ function HomePageInner() {
     syncProfile();
   }, []);
 
+  const [activeTab, setActiveTab] = useState<"picks" | "external">("picks");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +166,7 @@ function HomePageInner() {
   const [externalJobCompany, setExternalJobCompany] = useState<string>("");
   const [externalJobLocation, setExternalJobLocation] = useState<string>("");
   const [externalJobDescription, setExternalJobDescription] = useState<string>("");
+  const [externalAiInstructions, setExternalAiInstructions] = useState<string>("");
   const [externalJob, setExternalJob] = useState<ExternalJobDraft | null>(null);
   const [externalFormError, setExternalFormError] = useState<string | null>(null);
 
@@ -774,7 +795,7 @@ function HomePageInner() {
     onDiscardJob(job);
   }, [onDiscardJob, readSavedJobs, writeSavedJobs]);
 
-  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>) => {
+  const onGenerateCoverLetter = useCallback(async (job: Job, preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>, customInstructions?: string) => {
     const jobId = String(job.id);
     setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
 
@@ -836,6 +857,7 @@ function HomePageInner() {
           preferredLanguage,
           customTemplate,
           paragraphSettings,
+          customInstructions,
         }),
       });
 
@@ -958,7 +980,7 @@ function HomePageInner() {
     setCoverLetterLangModalOpen(true);
   }, []);
 
-  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>) => {
+  const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>, customInstructions?: string) => {
     setExternalFormError(null);
     const url = externalUrl.trim();
     const description = externalJobDescription.trim();
@@ -1055,13 +1077,14 @@ function HomePageInner() {
       description: finalDescription,
     };
 
-    await onGenerateCoverLetter(job, preferredLanguage, customTemplate, paragraphSettings);
+    await onGenerateCoverLetter(job, preferredLanguage, customTemplate, paragraphSettings, customInstructions);
   }, [
     externalUrl,
     externalJobTitle,
     externalJobCompany,
     externalJobLocation,
     externalJobDescription,
+    externalAiInstructions,
     onGenerateCoverLetter,
     writeExternalJobDraft,
   ]);
@@ -1082,7 +1105,9 @@ function HomePageInner() {
       
       try {
         if (coverLetterLangModalSource === "external") {
-          await onGenerateExternalCoverLetter(lang, customTemplate, paragraphSettings);
+          // For external jobs, pass the AI instructions from the form
+          const customInstructions = externalAiInstructions.trim() || undefined;
+          await onGenerateExternalCoverLetter(lang, customTemplate, paragraphSettings, customInstructions);
           return;
         }
         if (coverLetterLangModalJob) {
@@ -1094,7 +1119,7 @@ function HomePageInner() {
         setTemplateParagraphSettings({}); // Reset paragraph settings
       }
     },
-    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter, selectedTemplateId, coverLetterTemplates, templateParagraphSettings]
+    [coverLetterLangModalJob, coverLetterLangModalSource, onGenerateCoverLetter, onGenerateExternalCoverLetter, selectedTemplateId, coverLetterTemplates, templateParagraphSettings, externalAiInstructions]
   );
 
   // 1) Gate di accesso: solo profilo (login già fatto prima)
@@ -1501,374 +1526,442 @@ function HomePageInner() {
     router.push("/profile/edit");
   }
 
+  // State for search/filter
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("relevance");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Filter jobs based on search query
+  const filteredJobs = useMemo(() => {
+    if (!searchQuery.trim()) return jobs;
+    const q = searchQuery.toLowerCase();
+    return jobs.filter(
+      (job) =>
+        job.title?.toLowerCase().includes(q) ||
+        job.company?.toLowerCase().includes(q) ||
+        job.location?.toLowerCase().includes(q)
+    );
+  }, [jobs, searchQuery]);
+
   // UI di stato (evita flash strani e rimbalzi)
   if (gate === "checking") {
     return (
-      <main className="jp-page">
-        Loading your account...
-      </main>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
+        <div className="flex items-center gap-3 text-lg" style={{ color: "var(--foreground)" }}>
+          <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          Loading your account...
+        </div>
+      </div>
     );
   }
 
   if (gate === "need_profile") {
     return (
-      <main className="jp-page">
-        Redirecting to profile...
-      </main>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
+        <div className="flex items-center gap-3 text-lg" style={{ color: "var(--foreground)" }}>
+          <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          Redirecting to profile...
+        </div>
+      </div>
     );
   }
 
   // gate === "ready"
   return (
-    <main className="jp-page">
-      <div className="jp-topbar">
-        <div>
-          <h1 style={{ margin: 0 }}>Job Picks</h1>
-          <p style={{ margin: "6px 0 0 0" }}>Signed in as: {email ?? "-"}</p>
-          {subscriptionTier === "free" && (
+    <div className="min-h-screen" style={{ background: "var(--background)" }}>
+      {/* Header */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl" style={{ 
+        borderBottom: "1px solid var(--border)", 
+        background: "rgba(var(--background), 0.8)" 
+      }}>
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-6">
+          {/* Left: Logo & User */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-primary">
+                <Briefcase className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>Job Picks</span>
+            </div>
+            <div className="hidden items-center gap-3 text-sm md:flex" style={{ color: "var(--muted-foreground)" }}>
+              <span style={{ opacity: 0.5 }}>|</span>
+              <span>{email ?? "-"}</span>
+              {subscriptionTier === "premium" ? (
+                <div className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium" style={{
+                  background: "rgba(234, 179, 8, 0.2)",
+                  color: "var(--warning)",
+                  border: "1px solid rgba(234, 179, 8, 0.3)"
+                }}>
+                  <Crown className="h-3 w-3" />
+                  Premium
+                </div>
+              ) : (
+                <Link
+                  href="/upgrade"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80"
+                  style={{
+                    background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                    color: "white"
+                  }}
+                >
+                  Upgrade →
+                </Link>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Navigation */}
+          <nav className="hidden items-center gap-1 lg:flex">
             <Link
-              href="/upgrade"
-              style={{
-                display: "inline-block",
-                marginTop: 8,
-                padding: "6px 12px",
-                backgroundColor: "#0070f3",
-                color: "white",
-                textDecoration: "none",
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 600,
-              }}
+              href="/saved"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: "var(--muted-foreground)" }}
             >
-              Upgrade to Premium (€1/month) →
+              <Bookmark className="h-4 w-4" />
+              Saved jobs
             </Link>
-          )}
-          {subscriptionTier === "premium" && (
-            <span
-              style={{
-                display: "inline-block",
-                marginTop: 8,
-                padding: "6px 12px",
-                backgroundColor: "#10b981",
-                color: "white",
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 600,
-              }}
+            <Link
+              href={`/cover-letter/setup?returnTo=${encodeURIComponent("/home")}`}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: "var(--muted-foreground)" }}
             >
-              ✓ Premium Member
-            </span>
-          )}
-        </div>
+              <FileText className="h-4 w-4" />
+              CV
+            </Link>
+            <Link
+              href="/cover-letters"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: "var(--muted-foreground)" }}
+            >
+              <LayoutTemplate className="h-4 w-4" />
+              Templates
+            </Link>
+            <button
+              onClick={editProfile}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 gradient-primary text-white hover:opacity-90"
+            >
+              <Settings className="h-4 w-4" />
+              Edit job search
+            </button>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
+            >
+              <LogOut className="h-4 w-4" />
+              Log out
+            </button>
+          </nav>
 
-        <div className="jp-topbar-actions">
-          <Link
-            href="/saved"
-            style={{
-              display: "inline-block",
-              padding: "10px 12px",
-              height: 42,
-              lineHeight: "22px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              fontWeight: 800,
-              textDecoration: "none",
-              whiteSpace: "nowrap",
-            }}
-            aria-label="Saved jobs"
-            title="Saved jobs"
+          {/* Mobile menu button */}
+          <button 
+            className="flex h-10 w-10 items-center justify-center rounded-lg lg:hidden"
+            style={{ color: "var(--foreground)" }}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
-            Saved jobs
-          </Link>
-          <Link
-            href={`/cover-letter/setup?returnTo=${encodeURIComponent("/home")}`}
-            style={{
-              display: "inline-block",
-              padding: "10px 12px",
-              height: 42,
-              lineHeight: "22px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              fontWeight: 800,
-              textDecoration: "none",
-              whiteSpace: "nowrap",
-            }}
-            aria-label="CV and cover letter setup"
-            title="CV and cover letter setup"
-          >
-            CV
-          </Link>
-          <Link
-            href="/cover-letters"
-            style={{
-              display: "inline-block",
-              padding: "10px 12px",
-              height: 42,
-              lineHeight: "22px",
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              fontWeight: 800,
-              textDecoration: "none",
-              whiteSpace: "nowrap",
-            }}
-            aria-label="Cover letter templates"
-            title="Cover letter templates"
-          >
-            Templates
-          </Link>
-          <button
-            onClick={editProfile}
-            style={{
-              padding: "10px 14px",
-              height: 42,
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
-              color: "white",
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: "var(--jp-shadow)",
-              whiteSpace: "nowrap",
-            }}
-            aria-label="Edit job search"
-            title="Edit job search"
-          >
-            Edit job search
-          </button>
-          <button
-            onClick={onLogout}
-            style={{
-              padding: "10px 12px",
-              height: 42,
-              borderRadius: 10,
-              border: "1px solid var(--jp-panel-border)",
-              backgroundColor: "var(--jp-panel-bg)",
-              color: "var(--jp-panel-fg)",
-              fontWeight: 600,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Log out
+            <ChevronDown className={`h-5 w-5 transition-transform ${mobileMenuOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
-      </div>
 
-      <div style={{ marginTop: 18 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 10 }}>
-          Today's picks
-        </h2>
-        <p style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
-          {subscriptionTier === "premium"
-            ? "Showing up to 10 best matches for your profile"
-            : "Showing 3 picks for your profile"}
-        </p>
+        {/* Mobile menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden px-4 pb-4 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <Link href="/saved" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
+              <Bookmark className="h-4 w-4" /> Saved jobs
+            </Link>
+            <Link href={`/cover-letter/setup?returnTo=${encodeURIComponent("/home")}`} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
+              <FileText className="h-4 w-4" /> CV
+            </Link>
+            <Link href="/cover-letters" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
+              <LayoutTemplate className="h-4 w-4" /> Templates
+            </Link>
+            <button onClick={editProfile} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium gradient-primary text-white">
+              <Settings className="h-4 w-4" /> Edit job search
+            </button>
+            <button onClick={onLogout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--muted-foreground)" }}>
+              <LogOut className="h-4 w-4" /> Log out
+            </button>
+          </div>
+        )}
+      </header>
 
-        <div className="jp-two-col">
-          {/* Left: today's picks */}
-          <div style={{ flex: "1 1 560px", minWidth: 0 }}>
-            {error && <p style={{ color: "#ef4444" }}>{error}</p>}
+      <main className="h-[calc(100vh-73px)] overflow-y-auto">
+        <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
+          {/* Tab Switcher */}
+          <div className="mb-6 flex items-center gap-2 p-1.5 rounded-xl w-fit" style={{ background: "var(--secondary)" }}>
+            <button
+              onClick={() => setActiveTab("picks")}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "picks"
+                  ? "gradient-primary text-white shadow-md"
+                  : "hover:bg-white/10"
+              }`}
+            >
+              <Briefcase className="h-4 w-4" />
+              Job Picks
+            </button>
+            <button
+              onClick={() => setActiveTab("external")}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "external"
+                  ? "gradient-primary text-white shadow-md"
+                  : "hover:bg-white/10"
+              }`}
+            >
+              <ExternalLink className="h-4 w-4" />
+              External Job
+            </button>
+          </div>
 
-            {jobsLoading && !error && <p>Loading today's picks...</p>}
+          {/* Job Picks Tab */}
+          {activeTab === "picks" && (
+            <>
+              {/* Header */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>Today's picks</h1>
+                <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  {subscriptionTier === "premium"
+                    ? "Showing up to 10 best matches for your profile"
+                    : "Showing 3 picks for your profile"}
+                </p>
+              </div>
 
-            {!jobsLoading && !error && jobs.length === 0 && (
-              <p>No jobs found for today. Check back tomorrow.</p>
+              <div className="space-y-4">
+            {/* Filter Bar */}
+            <div className="flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center sm:justify-between" style={{
+              border: "1px solid var(--border)",
+              background: "var(--card)"
+            }}>
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "var(--muted-foreground)" }} />
+                <input
+                  type="text"
+                  placeholder="Search jobs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none transition-all"
+                  style={{
+                    background: "var(--secondary)",
+                    color: "var(--foreground)",
+                    border: "none"
+                  }}
+                />
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full sm:w-44 rounded-lg px-3 py-2.5 text-sm outline-none"
+                style={{
+                  background: "var(--secondary)",
+                  color: "var(--foreground)",
+                  border: "none"
+                }}
+              >
+                <option value="relevance">Most relevant</option>
+                <option value="recent">Most recent</option>
+              </select>
+            </div>
+
+            {/* Loading state */}
+            {jobsLoading && !error && (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="rounded-xl p-5 animate-pulse" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                    <div className="space-y-3">
+                      <div className="h-6 w-3/4 rounded" style={{ background: "var(--muted)" }} />
+                      <div className="flex items-center gap-4">
+                        <div className="h-4 w-28 rounded" style={{ background: "var(--muted)" }} />
+                        <div className="h-4 w-24 rounded" style={{ background: "var(--muted)" }} />
+                      </div>
+                      <div className="h-4 w-full rounded" style={{ background: "var(--muted)" }} />
+                      <div className="h-4 w-2/3 rounded" style={{ background: "var(--muted)" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
 
-            {!jobsLoading && !error && jobs.length > 0 && (
-              <>
-                <ul style={{ paddingLeft: 0, listStyle: "none", margin: 0 }}>
-                  {jobs.map((job) => (
-                    <li
-                      key={job.id}
-                      style={{
-                        marginBottom: 16,
-                        padding: 16,
-                        border: "1px solid var(--jp-panel-border)",
-                        borderRadius: 14,
-                        backgroundColor: "var(--jp-panel-bg)",
-                        color: "var(--jp-panel-fg)",
-                        boxShadow: "var(--jp-shadow)",
-                      }}
-                    >
-                  <div>
-                    <strong style={{ fontSize: 16 }}>{job.title}</strong>
-                  </div>
-                  <div style={{ marginTop: 4, opacity: 0.8 }}>
-                    {job.company}
-                  </div>
-                  {(() => {
-                    const meta = extractJobMetaFromDescription(job.description);
-                    const showLang = meta.language && meta.language !== "N/A";
-                    const showAct = meta.activityRate && meta.activityRate !== "N/A";
-                    if (!showLang && !showAct) return null;
-                    return (
-                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {showLang && (
-                          <div
+            {/* Error state */}
+            {error && (
+              <div className="rounded-xl p-4" style={{ 
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                background: "rgba(239, 68, 68, 0.1)",
+                color: "#ef4444"
+              }}>
+                {error}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!jobsLoading && !error && filteredJobs.length === 0 && (
+              <div className="flex flex-col items-center justify-center rounded-xl py-16 px-6 text-center" style={{
+                border: "1px dashed var(--border)",
+                background: "rgba(var(--card), 0.5)"
+              }}>
+                <div className="flex h-14 w-14 items-center justify-center rounded-full mb-4" style={{ background: "var(--muted)" }}>
+                  <Inbox className="h-7 w-7" style={{ color: "var(--muted-foreground)" }} />
+                </div>
+                <h3 className="text-lg font-medium mb-1" style={{ color: "var(--foreground)" }}>No picks yet</h3>
+                <p className="text-sm max-w-sm" style={{ color: "var(--muted-foreground)" }}>
+                  {searchQuery ? "No jobs match your search. Try a different query." : "We're searching for the best matches. Check back soon or adjust your job preferences."}
+                </p>
+                <button
+                  onClick={editProfile}
+                  className="mt-4 flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+                  style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                >
+                  <Settings className="h-4 w-4" />
+                  Edit preferences
+                </button>
+              </div>
+            )}
+
+            {!jobsLoading && !error && filteredJobs.length > 0 && (
+              <div className="space-y-4">
+                {filteredJobs.map((job) => (
+                  <div
+                    key={job.id}
+                    className="group rounded-xl p-5 transition-all duration-200 animate-fade-in hover:border-purple-500/30"
+                    style={{
+                      border: "1px solid var(--border)",
+                      background: "var(--card)",
+                    }}
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      {/* Left: Job info */}
+                      <div className="flex-1 space-y-3 min-w-0">
+                        <h3 
+                          className="text-lg font-semibold transition-colors group-hover:text-purple-400"
+                          style={{ color: "var(--foreground)" }}
+                        >
+                          {job.title}
+                        </h3>
+                        
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                          <span className="flex items-center gap-1.5">
+                            <Building2 className="h-3.5 w-3.5" />
+                            {job.company}
+                          </span>
+                          {job.location && (
+                            <span className="flex items-center gap-1.5">
+                              <MapPin className="h-3.5 w-3.5" />
+                              {job.location}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Metadata badges */}
+                        {(() => {
+                          const meta = extractJobMetaFromDescription(job.description);
+                          const showLang = meta.language && meta.language !== "N/A";
+                          const showAct = meta.activityRate && meta.activityRate !== "N/A";
+                          const hasSalary = job.salaryMin || job.salaryMax;
+                          if (!showLang && !showAct && !hasSalary) return null;
+                          return (
+                            <div className="flex flex-wrap gap-2">
+                              {showLang && (
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium" style={{
+                                  background: "var(--secondary)",
+                                  color: "var(--foreground)"
+                                }}>
+                                  {meta.language}
+                                </span>
+                              )}
+                              {showAct && (
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium" style={{
+                                  background: "var(--secondary)",
+                                  color: "var(--foreground)"
+                                }}>
+                                  {meta.activityRate}
+                                </span>
+                              )}
+                              {hasSalary && (
+                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium" style={{
+                                  background: "rgba(16, 185, 129, 0.15)",
+                                  color: "#10b981"
+                                }}>
+                                  💰 {job.salaryMin && job.salaryMax 
+                                    ? `${job.salaryMin.toLocaleString()} - ${job.salaryMax.toLocaleString()}` 
+                                    : job.salaryMin 
+                                    ? `From ${job.salaryMin.toLocaleString()}` 
+                                    : `Up to ${job.salaryMax?.toLocaleString()}`}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {job.description && (
+                          <p className="text-sm line-clamp-2 leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
+                            {job.description.substring(0, 200)}
+                            {job.description.length > 200 && "..."}
+                          </p>
+                        )}
+
+                        {/* Actions row */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <a
+                            href={job.url || "#"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            onClick={async (e) => {
+                              if (job.url && (job.url.includes('adzuna.com') || job.url.includes('adzuna.co.uk'))) {
+                                e.preventDefault();
+                                try {
+                                  const response = await fetch(`/api/resolve-job-url?url=${encodeURIComponent(job.url)}`);
+                                  const data = await response.json();
+                                  if (data.url && !data.isAdzunaRedirect) {
+                                    window.open(data.url, '_blank', 'noopener,noreferrer');
+                                  } else {
+                                    window.open(job.url, '_blank', 'noopener,noreferrer');
+                                  }
+                                } catch (error) {
+                                  console.error('Failed to resolve job URL:', error);
+                                  window.open(job.url, '_blank', 'noopener,noreferrer');
+                                }
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 gradient-primary"
+                          >
+                            View position
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+
+                          <button
+                            onClick={() => onSaveForLater(job)}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
                             style={{
-                              padding: "4px 8px",
-                              borderRadius: 999,
-                              border: "1px solid var(--jp-panel-border)",
-                              backgroundColor: "var(--jp-input-bg)",
-                              color: "var(--jp-input-fg)",
-                              fontSize: 12,
-                              fontWeight: 800,
+                              background: "var(--secondary)",
+                              color: "var(--foreground)"
                             }}
                           >
-                            Language: {meta.language}
-                          </div>
-                        )}
-                        {showAct && (
-                          <div
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: 999,
-                              border: "1px solid var(--jp-panel-border)",
-                              backgroundColor: "var(--jp-input-bg)",
-                              color: "var(--jp-input-fg)",
-                              fontSize: 12,
-                              fontWeight: 800,
-                            }}
+                            <Bookmark className="h-3.5 w-3.5" />
+                            Save
+                          </button>
+
+                          <button
+                            onClick={() => onDiscardJob(job)}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:text-red-400"
+                            style={{ color: "var(--muted-foreground)" }}
                           >
-                            Activity: {meta.activityRate}
-                          </div>
-                        )}
+                            <X className="h-3.5 w-3.5" />
+                            Discard
+                          </button>
+                        </div>
                       </div>
-                    );
-                  })()}
-                  {job.location && (
-                    <div style={{ marginTop: 4, opacity: 0.7, fontSize: 14 }}>
-                      📍 {job.location}
-                    </div>
-                  )}
-                  {(job.salaryMin || job.salaryMax) && (
-                    <div style={{ marginTop: 4, opacity: 0.7, fontSize: 14 }}>
-                      💰 {job.salaryMin && job.salaryMax 
-                        ? `${job.salaryMin.toLocaleString()} - ${job.salaryMax.toLocaleString()}` 
-                        : job.salaryMin 
-                        ? `From ${job.salaryMin.toLocaleString()}` 
-                        : job.salaryMax
-                        ? `Up to ${job.salaryMax.toLocaleString()}` 
-                        : ""}
-                    </div>
-                  )}
-                  {job.description && (
-                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8, lineHeight: 1.5 }}>
-                      {job.description.substring(0, 200)}
-                      {job.description.length > 200 && "..."}
-                    </div>
-                  )}
-                  <div className="jp-job-actions" style={{ marginTop: 12 }}>
-                    <a
-                      href={job.url || "#"}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      onClick={async (e) => {
-                        // If the URL contains adzuna.com, try to resolve it to the final destination
-                        if (job.url && (job.url.includes('adzuna.com') || job.url.includes('adzuna.co.uk'))) {
-                          e.preventDefault();
-                          try {
-                            const response = await fetch(`/api/resolve-job-url?url=${encodeURIComponent(job.url)}`);
-                            const data = await response.json();
-                            if (data.url && !data.isAdzunaRedirect) {
-                              // Open the resolved direct URL
-                              window.open(data.url, '_blank', 'noopener,noreferrer');
-                            } else {
-                              // If we can't resolve it, just open the original URL
-                              window.open(job.url, '_blank', 'noopener,noreferrer');
-                            }
-                          } catch (error) {
-                            // If resolution fails, open the original URL
-                            console.error('Failed to resolve job URL:', error);
-                            window.open(job.url, '_blank', 'noopener,noreferrer');
-                          }
-                        }
-                        // If it's not an Adzuna URL, let the default link behavior proceed
-                      }}
-                      style={{
-                        display: "inline-block",
-                        padding: "8px 14px",
-                        background: "linear-gradient(180deg, rgba(16,185,129,0.95), rgba(5,150,105,0.95))",
-                        color: "white",
-                        textDecoration: "none",
-                        borderRadius: 10,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        border: "1px solid var(--jp-panel-border)",
-                        boxShadow: "var(--jp-shadow)",
-                      }}
-                      aria-label="View position"
-                      title="View position"
-                    >
-                      View position →
-                    </a>
 
-                    <button
-                      onClick={() => onSaveForLater(job)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-panel-border)",
-                        backgroundColor: "var(--jp-panel-bg)",
-                        color: "var(--jp-panel-fg)",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                      aria-label="Save for later"
-                      title="Save for later"
-                    >
-                      Save for later
-                    </button>
-
-                    <button
-                      onClick={() => onDiscardJob(job)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-panel-border)",
-                        backgroundColor: "transparent",
-                        color: "var(--jp-panel-fg)",
-                        fontSize: 13,
-                        fontWeight: 800,
-                        cursor: "pointer",
-                        opacity: 0.85,
-                      }}
-                      aria-label="Discard"
-                      title="Discard"
-                    >
-                      Discard
-                    </button>
-
-                    <button
-                      onClick={() => openCoverLetterLanguageModalForJob(job)}
-                      disabled={coverLetterLoadingId === String(job.id)}
-                      className="jp-primary-action"
-                      style={{
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid var(--jp-panel-border)",
-                        background: "linear-gradient(180deg, rgba(168,85,247,0.95), rgba(79,70,229,0.95))",
-                        color: "white",
-                        fontSize: 13,
-                        fontWeight: 900,
-                        cursor: coverLetterLoadingId === String(job.id) ? "not-allowed" : "pointer",
-                        opacity: coverLetterLoadingId === String(job.id) ? 0.65 : 1,
-                        boxShadow: "var(--jp-shadow)",
-                      }}
-                      aria-label="Generate cover letter"
-                      title="Generate cover letter"
-                    >
-                      {coverLetterLoadingId === String(job.id) ? "Generating..." : "Generate cover letter"}
-                    </button>
-                  </div>
+                      {/* Right: Generate CTA */}
+                      <div className="lg:ml-4 lg:flex-shrink-0">
+                        <button
+                          onClick={() => openCoverLetterLanguageModalForJob(job)}
+                          disabled={coverLetterLoadingId === String(job.id)}
+                          className="w-full lg:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 gradient-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          {coverLetterLoadingId === String(job.id) ? "Generating..." : "Generate cover letter"}
+                        </button>
+                      </div>
+                    </div>
 
                   {!!coverLetterErrorByJobId[String(job.id)] && (
                     <div
@@ -2210,17 +2303,13 @@ function HomePageInner() {
                       </div>
                     </div>
                   )}
-                    </li>
-                  ))}
-                </ul>
+                  </div>
+                ))}
                 <div
+                  className="mt-4 pt-4 text-center text-xs"
                   style={{
-                    marginTop: 16,
-                    paddingTop: 14,
-                    borderTop: "1px solid var(--jp-panel-border)",
-                    fontSize: 12,
-                    opacity: 0.7,
-                    textAlign: "center",
+                    borderTop: "1px solid var(--border)",
+                    color: "var(--muted-foreground)"
                   }}
                 >
                   Jobs by{" "}
@@ -2228,176 +2317,179 @@ function HomePageInner() {
                     Adzuna
                   </a>
                 </div>
-              </>
+              </div>
             )}
-          </div>
+              </div>
+            </>
+          )}
 
-          {/* Right: external link (sticky on desktop, stacks below on mobile) */}
-          <div style={{ flex: "0 0 380px", width: "100%", maxWidth: 460 }}>
-            <div className="jp-sticky">
-              <div
-                style={{
-                  padding: 16,
-                  borderRadius: 14,
-                  border: "1px solid var(--jp-panel-border)",
-                  backgroundColor: "var(--jp-panel-bg)",
-                  color: "var(--jp-panel-fg)",
-                  boxShadow: "var(--jp-shadow)",
-                }}
-              >
-                <h3 style={{ margin: 0, fontSize: 14 }}>External job link</h3>
-                <p style={{ margin: "6px 0 0 0", fontSize: 12, opacity: 0.75 }}>
-                  Paste a job link you found online. We&apos;ll extract the details and generate a cover letter.
+          {/* External Job Tab */}
+          {activeTab === "external" && (
+            <>
+              {/* Header */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: "var(--foreground)" }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center gradient-primary">
+                    <ExternalLink className="h-5 w-5 text-white" />
+                  </div>
+                  Generate from External Job
+                </h1>
+                <p className="mt-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  Paste a job URL or description to create a tailored cover letter
                 </p>
+              </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Job link</label>
-                  <input
-                    value={externalUrl}
-                    onChange={(e) => setExternalUrl(e.target.value)}
-                    placeholder="https://..."
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      borderRadius: 10,
-                      border: "1px solid var(--jp-input-border)",
-                      backgroundColor: "var(--jp-input-bg)",
-                      color: "var(--jp-input-fg)",
-                    }}
-                  />
-                  {externalUrl.trim() && (
-                    <div style={{ marginTop: 8, fontSize: 12 }}>
-                      <a href={externalUrl.trim()} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
-                        View link →
-                      </a>
-                    </div>
-                  )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left column - Form */}
+                <div className="rounded-xl p-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+
+                {/* Job URL Input */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Job Link</label>
+                  <div className="relative">
+                    <input
+                      value={externalUrl}
+                      onChange={(e) => setExternalUrl(e.target.value)}
+                      placeholder="https://linkedin.com/jobs/..."
+                      className="w-full p-3 pl-10 rounded-xl text-base transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                      style={{
+                        border: "1px solid var(--border)",
+                        backgroundColor: "var(--secondary)",
+                        color: "var(--foreground)",
+                      }}
+                    />
+                    <ExternalLink className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 opacity-40" />
+                  </div>
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
-                    Job title (optional - will be extracted from link if not provided)
-                  </label>
+                {/* Optional fields - compact row */}
+                <div className="mt-4 grid grid-cols-3 gap-4">
                   <input
                     value={externalJobTitle}
                     onChange={(e) => setExternalJobTitle(e.target.value)}
-                    placeholder="e.g., Senior Software Engineer"
+                    placeholder="Job title"
+                    className="w-full p-3 rounded-xl text-base transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
                     style={{
-                      width: "100%",
-                      padding: 10,
-                      borderRadius: 10,
-                      border: "1px solid var(--jp-input-border)",
-                      backgroundColor: "var(--jp-input-bg)",
-                      color: "var(--jp-input-fg)",
-                      fontSize: 12,
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--secondary)",
+                      color: "var(--foreground)",
                     }}
                   />
-                </div>
-
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
-                    Company name (optional - will be extracted from link if not provided)
-                  </label>
                   <input
                     value={externalJobCompany}
                     onChange={(e) => setExternalJobCompany(e.target.value)}
-                    placeholder="e.g., Tech Company Inc."
+                    placeholder="Company"
+                    className="w-full p-3 rounded-xl text-base transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
                     style={{
-                      width: "100%",
-                      padding: 10,
-                      borderRadius: 10,
-                      border: "1px solid var(--jp-input-border)",
-                      backgroundColor: "var(--jp-input-bg)",
-                      color: "var(--jp-input-fg)",
-                      fontSize: 12,
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--secondary)",
+                      color: "var(--foreground)",
                     }}
                   />
-                </div>
-
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
-                    Location (optional - will be extracted from link if not provided)
-                  </label>
                   <input
                     value={externalJobLocation}
                     onChange={(e) => setExternalJobLocation(e.target.value)}
-                    placeholder="e.g., Milan, Italy"
+                    placeholder="Location"
+                    className="w-full p-3 rounded-xl text-base transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
                     style={{
-                      width: "100%",
-                      padding: 10,
-                      borderRadius: 10,
-                      border: "1px solid var(--jp-input-border)",
-                      backgroundColor: "var(--jp-input-bg)",
-                      color: "var(--jp-input-fg)",
-                      fontSize: 12,
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--secondary)",
+                      color: "var(--foreground)",
                     }}
                   />
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
-                    Job description (optional - paste here if the link is not readable)
+                <div className="mt-5">
+                  <label className="block text-sm font-semibold mb-2 opacity-80">
+                    Job description <span className="font-normal">(optional)</span>
                   </label>
                   <textarea
                     value={externalJobDescription}
                     onChange={(e) => setExternalJobDescription(e.target.value)}
-                    placeholder="Paste the complete job description here. This information will be used to generate a tailored cover letter."
+                    placeholder="Paste job description here..."
+                    className="w-full h-28 p-4 rounded-xl text-base resize-none transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
                     style={{
-                      width: "100%",
-                      minHeight: 120,
-                      padding: 10,
-                      borderRadius: 10,
-                      border: "1px solid var(--jp-input-border)",
-                      backgroundColor: "var(--jp-input-bg)",
-                      color: "var(--jp-input-fg)",
-                      fontSize: 12,
-                      fontFamily: "inherit",
-                      resize: "vertical",
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--secondary)",
+                      color: "var(--foreground)",
+                    }}
+                  />
+                </div>
+
+                <div className="mt-5">
+                  <label className="block text-sm font-semibold mb-2 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" style={{ color: "var(--primary)" }} />
+                    AI Instructions <span className="font-normal opacity-60">(optional)</span>
+                  </label>
+                  <textarea
+                    value={externalAiInstructions}
+                    onChange={(e) => setExternalAiInstructions(e.target.value)}
+                    placeholder="E.g.: 'Emphasize project management experience', 'Use formal tone'..."
+                    className="w-full h-24 p-4 rounded-xl text-base resize-none transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
+                    style={{
+                      border: "1px solid rgba(168,85,247,0.4)",
+                      backgroundColor: "rgba(168,85,247,0.08)",
+                      color: "var(--foreground)",
                     }}
                   />
                 </div>
 
                 {!!externalFormError && (
-                  <div style={{ marginTop: 10, color: "#ef4444", fontSize: 12, whiteSpace: "pre-wrap" }}>
+                  <div className="mt-2 text-[10px] text-red-400 whitespace-pre-wrap">
                     {externalFormError}
                   </div>
                 )}
 
-                <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button
-                    onClick={openCoverLetterLanguageModalForExternal}
-                    disabled={Boolean(
-                      coverLetterLoadingId &&
-                        coverLetterLoadingId === (externalJobId || stableIdFromString("ext", externalUrl.trim()))
-                    )}
-                    style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      borderRadius: 12,
-                      border: "1px solid var(--jp-panel-border)",
-                      background: "linear-gradient(180deg, rgba(168,85,247,0.95), rgba(126,34,206,0.95))",
-                      color: "white",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "var(--jp-shadow)",
-                    }}
-                    aria-label="Generate cover letter (external job)"
-                    title="Generate cover letter"
-                  >
-                    {coverLetterLoadingId &&
-                    coverLetterLoadingId === (externalJobId || (externalUrl.trim() ? stableIdFromString("ext", externalUrl.trim()) : ""))
-                      ? (externalUrl.trim() ? "Extracting & generating..." : "Generating...")
-                      : "Generate cover letter"}
-                  </button>
+                  <div className="mt-6">
+                    <button
+                      onClick={openCoverLetterLanguageModalForExternal}
+                      disabled={Boolean(
+                        coverLetterLoadingId &&
+                          coverLetterLoadingId === (externalJobId || stableIdFromString("ext", externalUrl.trim()))
+                      )}
+                      className="w-full py-4 rounded-xl gradient-primary text-white font-bold text-lg flex items-center justify-center gap-2 hover:opacity-90 transition-all disabled:opacity-50 shadow-lg"
+                      aria-label="Generate cover letter (external job)"
+                      title="Generate cover letter"
+                    >
+                      {coverLetterLoadingId &&
+                      coverLetterLoadingId === (externalJobId || (externalUrl.trim() ? stableIdFromString("ext", externalUrl.trim()) : ""))
+                        ? <>
+                            <span className="animate-spin">⏳</span>
+                            {externalUrl.trim() ? "Extracting..." : "Generating..."}
+                          </>
+                        : <>
+                            <Sparkles className="h-5 w-5" />
+                            Generate Cover Letter
+                          </>}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Right column - Cover Letter Output */}
+                <div className="rounded-xl p-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="h-5 w-5" style={{ color: "var(--primary)" }} />
+                    <span className="font-bold text-lg">Generated Cover Letter</span>
+                  </div>
 
                 {/* Render the external cover letter using the same cache/state as internal jobs */}
                 {(() => {
                   const id = externalJobId || (externalUrl.trim() ? stableIdFromString("ext", externalUrl.trim()) : "");
                   const text = id ? coverLetterByJobId[id] : "";
                   const err = id ? coverLetterErrorByJobId[id] : "";
-                  if (!id) return null;
-                  if (!text && !err && !externalJob?.title && !externalJob?.company && !externalJob?.location) return null;
+                  
+                  // Empty state
+                  if (!id || (!text && !err && !externalJob?.title && !externalJob?.company && !externalJob?.location)) {
+                    return (
+                      <div className="flex flex-col items-center justify-center text-center py-16 opacity-50">
+                        <FileText className="h-16 w-16 mb-4" style={{ color: "var(--muted-foreground)" }} />
+                        <p className="text-lg font-medium">No cover letter yet</p>
+                        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
+                          Fill in the job details and click Generate
+                        </p>
+                      </div>
+                    );
+                  }
                   const jobForDocx: Job = {
                     id,
                     title: externalJob?.title?.trim?.() || "Job opportunity",
@@ -2407,15 +2499,15 @@ function HomePageInner() {
                     description: externalJob?.description?.trim?.() || "",
                   };
                   return (
-                    <div style={{ marginTop: 12 }}>
+                    <div>
                       {(externalJob?.title?.trim?.() ||
                         externalJob?.company?.trim?.() ||
                         externalJob?.location?.trim?.()) && (
-                        <div style={{ fontSize: 12, opacity: 0.85 }}>
-                          <div>
-                            <strong>{externalJob?.title?.trim?.() || "Job opportunity"}</strong>
+                        <div className="mb-4 p-4 rounded-xl" style={{ background: "var(--secondary)" }}>
+                          <div className="font-semibold text-base">
+                            {externalJob?.title?.trim?.() || "Job opportunity"}
                           </div>
-                          <div>
+                          <div className="text-sm opacity-70 mt-1">
                             {externalJob?.company?.trim?.() || "Company"}
                             {externalJob?.location?.trim?.() ? ` • ${externalJob.location.trim()}` : ""}
                           </div>
@@ -2423,62 +2515,32 @@ function HomePageInner() {
                       )}
 
                       {!!err && (
-                        <div
-                          style={{
-                            marginTop: 8,
-                            padding: 10,
-                            borderRadius: 10,
-                            border: "1px solid rgba(239,68,68,0.35)",
-                            backgroundColor: "rgba(239,68,68,0.08)",
-                            color: "var(--jp-panel-fg)",
-                            whiteSpace: "pre-wrap",
-                            fontSize: 12,
-                          }}
-                        >
+                        <div className="mb-4 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-sm whitespace-pre-wrap">
                           {err}
                         </div>
                       )}
                       {!!text && (
-                        <div style={{ marginTop: 10 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
-                            <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
+                        <div>
+                            <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
                             {(coverLetterShortByJobId[id] || coverLetterVeryShortByJobId[id] || coverLetterCreativeByJobId[id]) && (
-                              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                              <div className="flex gap-1 items-center p-1 rounded-lg" style={{ background: "var(--secondary)" }}>
                                 <button
                                   onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [id]: "long" }))}
-                                  style={{
-                                    padding: "4px 10px",
-                                    borderRadius: 8,
-                                    border: "1px solid var(--jp-panel-border)",
-                                    backgroundColor: (selectedCoverLetterVersion[id] || "long") === "long" 
-                                      ? "rgba(168,85,247,0.2)" 
-                                      : "transparent",
-                                    color: "var(--jp-panel-fg)",
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                    opacity: 0.9,
-                                    whiteSpace: "nowrap",
-                                  }}
+                                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                    (selectedCoverLetterVersion[id] || "long") === "long" 
+                                      ? "gradient-primary text-white" 
+                                      : "hover:bg-white/10"
+                                  }`}
                                 >
                                   Long
                                 </button>
                                 <button
                                   onClick={() => setSelectedCoverLetterVersion((prev) => ({ ...prev, [id]: "short" }))}
-                                  style={{
-                                    padding: "4px 10px",
-                                    borderRadius: 8,
-                                    border: "1px solid var(--jp-panel-border)",
-                                    backgroundColor: selectedCoverLetterVersion[id] === "short" 
-                                      ? "rgba(168,85,247,0.2)" 
-                                      : "transparent",
-                                    color: "var(--jp-panel-fg)",
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                    opacity: 0.9,
-                                    whiteSpace: "nowrap",
-                                  }}
+                                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                    selectedCoverLetterVersion[id] === "short" 
+                                      ? "gradient-primary text-white" 
+                                      : "hover:bg-white/10"
+                                  }`}
                                 >
                                   Short
                                 </button>
@@ -2490,23 +2552,13 @@ function HomePageInner() {
                                         [id]: "very_short",
                                       }))
                                     }
-                                    style={{
-                                      padding: "4px 10px",
-                                      borderRadius: 8,
-                                      border: "1px solid var(--jp-panel-border)",
-                                      backgroundColor:
-                                        selectedCoverLetterVersion[id] === "very_short"
-                                          ? "rgba(168,85,247,0.2)"
-                                          : "transparent",
-                                      color: "var(--jp-panel-fg)",
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                      opacity: 0.9,
-                                      whiteSpace: "nowrap",
-                                    }}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                      selectedCoverLetterVersion[id] === "very_short"
+                                        ? "gradient-primary text-white"
+                                        : "hover:bg-white/10"
+                                    }`}
                                   >
-                                    Very short
+                                    Short
                                   </button>
                                 )}
                                 {coverLetterCreativeByJobId[id] && (
@@ -2517,56 +2569,34 @@ function HomePageInner() {
                                         [id]: "creative",
                                       }))
                                     }
-                                    style={{
-                                      padding: "4px 10px",
-                                      borderRadius: 8,
-                                      border: "1px solid var(--jp-panel-border)",
-                                      backgroundColor:
-                                        selectedCoverLetterVersion[id] === "creative"
-                                          ? "rgba(251,146,60,0.2)"
-                                          : "transparent",
-                                      color: "var(--jp-panel-fg)",
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: "pointer",
-                                      opacity: 0.9,
-                                      whiteSpace: "nowrap",
-                                    }}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                      selectedCoverLetterVersion[id] === "creative"
+                                        ? "bg-orange-500/20 text-orange-400"
+                                        : "hover:bg-white/10"
+                                    }`}
                                   >
-                                    Creative
+                                    ✨
                                   </button>
                                 )}
                               </div>
                             )}
-                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <div className="flex gap-3">
                               <button
                                 onClick={() => onCopyCoverLetter(id)}
-                                style={{
-                                  padding: "8px 12px",
-                                  borderRadius: 10,
-                                  border: "1px solid var(--jp-panel-border)",
-                                  backgroundColor: "var(--jp-panel-bg)",
-                                  color: "var(--jp-panel-fg)",
-                                  fontSize: 13,
-                                  fontWeight: 800,
-                                  cursor: "pointer",
-                                }}
+                                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all hover:opacity-90 gradient-primary text-white"
                               >
+                                <Copy className="h-4 w-4" />
                                 Copy
                               </button>
                               <button
                                 onClick={() => onDownloadCoverLetterDocx(jobForDocx)}
+                                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
                                 style={{
-                                  padding: "8px 12px",
-                                  borderRadius: 10,
-                                  border: "1px solid var(--jp-panel-border)",
-                                  backgroundColor: "var(--jp-panel-bg)",
-                                  color: "var(--jp-panel-fg)",
-                                  fontSize: 13,
-                                  fontWeight: 800,
-                                  cursor: "pointer",
+                                  background: "var(--secondary)",
+                                  color: "var(--foreground)"
                                 }}
                               >
+                                <Download className="h-4 w-4" />
                                 Download .docx
                               </button>
                             </div>
@@ -2582,20 +2612,12 @@ function HomePageInner() {
                                 : text
                             }
                             readOnly
+                            className="w-full mt-4 p-5 rounded-xl text-base leading-relaxed resize-y"
                             style={{
-                              marginTop: 10,
-                              width: "100%",
-                              minHeight: 220,
-                              padding: 12,
-                              borderRadius: 12,
-                              border: "1px solid var(--jp-panel-border)",
-                              backgroundColor: "var(--jp-panel-bg)",
-                              color: "var(--jp-panel-fg)",
-                              lineHeight: 1.55,
-                              fontFamily:
-                                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                              fontSize: 12,
-                              resize: "vertical",
+                              minHeight: 350,
+                              border: "1px solid var(--border)",
+                              backgroundColor: "var(--secondary)",
+                              color: "var(--foreground)",
                             }}
                           />
                         </div>
@@ -2603,11 +2625,12 @@ function HomePageInner() {
                     </div>
                   );
                 })()}
+                </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
-      </div>
+      </main>
 
       {/* Cover letter language modal */}
       {coverLetterLangModalOpen && (
@@ -2829,6 +2852,6 @@ function HomePageInner() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }

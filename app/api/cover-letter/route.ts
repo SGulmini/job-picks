@@ -446,6 +446,8 @@ export async function POST(req: NextRequest) {
             ? `Experience: ${profile.experienceYears} years`
             : "Experience: (not provided)",
           "",
+          customInstructions ? `USER'S CUSTOM INSTRUCTIONS (follow these additional guidelines):\n${customInstructions}` : "",
+          "",
           "REMEMBER: This is NOT a standard cover letter. It's a smart, authentic, memorable communication that shows personality, empathy, and intelligence. Make it stand out completely from typical cover letters.",
         ]
           .filter(Boolean)
@@ -522,6 +524,8 @@ export async function POST(req: NextRequest) {
           : mode === "short"
           ? "IMPORTANT: Keep it SHORT and CONCISE. Focus on the most relevant experience. Maximum 3–4 short paragraphs total."
           : "IMPORTANT: Use the CV to pick 3–6 relevant skills/experiences to mention. If the CV is missing details, keep it generic.",
+        "",
+        customInstructions ? `USER'S CUSTOM INSTRUCTIONS (follow these additional guidelines carefully):\n${customInstructions}` : "",
       ]
         .filter(Boolean)
         .join("\n");
