@@ -1685,8 +1685,8 @@ function HomePageInner() {
         )}
       </header>
 
-      <main className="h-[calc(100vh-73px)] overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
+      <main className="h-[calc(100vh-73px)] overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6 overflow-hidden">
           {/* Tab Switcher */}
           <div className="mb-6 flex items-center gap-2 p-1.5 rounded-xl w-fit" style={{ background: "var(--secondary)" }}>
             <button
@@ -1951,11 +1951,11 @@ function HomePageInner() {
                       </div>
 
                       {/* Right: Generate CTA */}
-                      <div className="lg:ml-4 lg:flex-shrink-0">
+                      <div className="w-full lg:w-auto lg:ml-4 lg:flex-shrink-0 mt-3 lg:mt-0">
                         <button
                           onClick={() => openCoverLetterLanguageModalForJob(job)}
                           disabled={coverLetterLoadingId === String(job.id)}
-                          className="w-full lg:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 gradient-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full lg:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 gradient-accent disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Sparkles className="h-4 w-4" />
                           {coverLetterLoadingId === String(job.id) ? "Generating..." : "Generate cover letter"}
@@ -1983,16 +1983,14 @@ function HomePageInner() {
 
                   {!!coverLetterByJobId[String(job.id)] && (
                     <div
+                      className="mt-4 p-4 rounded-xl overflow-hidden"
                       style={{
-                        marginTop: 10,
-                        padding: 12,
-                        borderRadius: 12,
                         border: "1px solid var(--jp-panel-border)",
                         backgroundColor: "var(--jp-panel-bg)",
                         color: "var(--jp-panel-fg)",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                      <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
                         <div style={{ fontWeight: 800, fontSize: 13 }}>Cover letter</div>
                         {(coverLetterShortByJobId[String(job.id)] ||
                           coverLetterVeryShortByJobId[String(job.id)] ||
@@ -2104,20 +2102,14 @@ function HomePageInner() {
                             )}
                           </div>
                         )}
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div className="flex flex-wrap gap-2 items-center">
                           <button
                             onClick={() => onDownloadCoverLetterDocx(job)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                             style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
                               border: "1px solid var(--jp-panel-border)",
                               backgroundColor: "transparent",
                               color: "var(--jp-panel-fg)",
-                              fontSize: 12,
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              opacity: 0.9,
-                              whiteSpace: "nowrap",
                             }}
                             aria-label="Download as .docx"
                             title="Download as .docx"
@@ -2126,17 +2118,11 @@ function HomePageInner() {
                           </button>
                           <button
                             onClick={() => onCopyCoverLetter(String(job.id))}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                             style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
                               border: "1px solid var(--jp-panel-border)",
                               backgroundColor: "transparent",
                               color: "var(--jp-panel-fg)",
-                              fontSize: 12,
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              opacity: 0.9,
-                              whiteSpace: "nowrap",
                             }}
                           >
                             Copy
@@ -2156,43 +2142,29 @@ function HomePageInner() {
                             ? coverLetterShortByJobId[String(job.id)] || coverLetterByJobId[String(job.id)]
                             : coverLetterByJobId[String(job.id)]
                         }
+                        className="mt-3 w-full min-h-[200px] p-3 rounded-lg text-sm leading-relaxed resize-y"
                         style={{
-                          marginTop: 10,
-                          width: "100%",
-                          minHeight: 220,
-                          padding: 12,
-                          borderRadius: 10,
                           border: "1px solid var(--jp-input-border)",
                           backgroundColor: "var(--jp-input-bg)",
                           color: "var(--jp-input-fg)",
-                          fontSize: 13,
-                          lineHeight: 1.5,
-                          resize: "vertical",
                         }}
                       />
                       
                       {/* Custom Instructions Section */}
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ marginBottom: 8 }}>
-                          <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                      <div className="mt-4">
+                        <div className="mb-2">
+                          <label className="block text-xs font-semibold mb-1.5">
                             Custom instructions (optional)
                           </label>
                           <textarea
                             value={customInstructionsByJobId[String(job.id)] || ""}
                             onChange={(e) => setCustomInstructionsByJobId((prev) => ({ ...prev, [String(job.id)]: e.target.value }))}
-                            placeholder="e.g., 'Make it more formal', 'Add more technical details', 'Emphasize leadership experience', 'Make it shorter'..."
+                            placeholder="e.g., 'Make it more formal', 'Add more technical details'..."
+                            className="w-full min-h-[60px] p-3 rounded-lg text-xs leading-relaxed resize-y"
                             style={{
-                              width: "100%",
-                              minHeight: 60,
-                              padding: 10,
-                              borderRadius: 10,
                               border: "1px solid var(--jp-input-border)",
                               backgroundColor: "var(--jp-input-bg)",
                               color: "var(--jp-input-fg)",
-                              fontSize: 12,
-                              lineHeight: 1.5,
-                              resize: "vertical",
-                              fontFamily: "inherit",
                             }}
                           />
                         </div>
