@@ -522,9 +522,9 @@ export async function POST(req: NextRequest) {
         profile?.remote !== undefined ? `Remote: ${profile.remote ? "Yes" : "No"}` : "",
         "",
         mode === "very_short"
-          ? "IMPORTANT: Make the letter VERY SHORT and ULTRA CONCISE. Maximum 1–2 short paragraphs and no more than about 120–150 words in total. Focus only on the single most relevant strength and motivation for this position."
+          ? "IMPORTANT: Make the letter VERY SHORT and ULTRA CONCISE — a condensed summary of the key points from a full cover letter. Maximum 1–2 short paragraphs (about 100–150 words total). Keep the SAME tone, style, and core message as a longer version, but distill it to only the single most impactful strength and motivation. It should read as a tight, polished summary — not a different letter."
           : mode === "short"
-          ? "IMPORTANT: Keep it SHORT and CONCISE. Focus on the most relevant experience. Maximum 3–4 short paragraphs total."
+          ? "IMPORTANT: Write a SHORTER version of the cover letter, but keep it closely ALIGNED with what the long version would say. Use the SAME structure, tone, and key arguments — just condense each section. Aim for 3–4 short paragraphs total. Cut filler and secondary points, but preserve the core narrative and flow. The reader should recognize it as a shorter version of the same letter, not a different one."
           : "IMPORTANT: Use the CV to pick 3–6 relevant skills/experiences to mention. If the CV is missing details, keep it generic.",
         "",
         customInstructions ? `USER'S CUSTOM INSTRUCTIONS (follow these additional guidelines carefully):\n${customInstructions}` : "",
@@ -604,8 +604,10 @@ export async function POST(req: NextRequest) {
     // Normal generation - all versions
     // Long version uses custom template if provided
     const longPrompt = generatePrompt(baseTemplate, "long", customInstructions, !!customTemplate);
-    const shortPrompt = generatePrompt(shortTemplate, "short", customInstructions, false);
-    const veryShortPrompt = generatePrompt(veryShortTemplate, "very_short", customInstructions, false);
+    // Short version uses the SAME base template as long, so it stays aligned in structure
+    const shortPrompt = generatePrompt(baseTemplate, "short", customInstructions, !!customTemplate);
+    // Very short version also uses the same base template for alignment
+    const veryShortPrompt = generatePrompt(baseTemplate, "very_short", customInstructions, !!customTemplate);
     // Creative version doesn't use a template - it creates something completely unique
     const creativePrompt = generatePrompt("", "creative", customInstructions, false);
 

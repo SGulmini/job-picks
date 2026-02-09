@@ -2530,7 +2530,7 @@ function HomePageInner() {
                                         : "hover:bg-white/10"
                                     }`}
                                   >
-                                    Short
+                                    Very Short
                                   </button>
                                 )}
                                 {coverLetterCreativeByJobId[id] && (
