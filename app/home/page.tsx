@@ -24,6 +24,7 @@ import {
   Download,
   ChevronDown,
   Loader2,
+  Printer,
 } from "lucide-react";
 
 type Job = {
@@ -1085,14 +1086,6 @@ function HomePageInner() {
     URL.revokeObjectURL(url);
   }, [researchReport, researchCompanyName]);
 
-  const onClearResearchCache = useCallback((companyNameToRemove: string) => {
-    const cache = readResearchCache();
-    const cacheKey = companyNameToRemove.toLowerCase();
-    delete cache[cacheKey];
-    writeResearchCache(cache);
-    setResearchRecentSearches((prev) => prev.filter((n) => n.toLowerCase() !== cacheKey));
-  }, [readResearchCache, writeResearchCache]);
-
   const renderResearchMarkdown = useCallback((text: string) => {
     const lines = text.split("\n");
     const html: string[] = [];
@@ -1120,6 +1113,25 @@ function HomePageInner() {
     if (inList) html.push("</ul>");
     return html.join("\n");
   }, []);
+
+  const onPrintResearch = useCallback(() => {
+    if (!researchReport) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    const htmlContent = renderResearchMarkdown(researchReport);
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Company Research - ${researchCompanyName.trim()}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:800px;margin:0 auto;padding:40px 20px;color:#1a1a1a;line-height:1.6}h2{margin-top:28px;margin-bottom:12px;font-size:18px}h3{margin-top:20px;margin-bottom:8px;font-size:15px}p{margin-bottom:8px;font-size:14px;color:#333}ul{padding-left:0;list-style:none}li{display:flex;gap:8px;font-size:14px;color:#333;margin-bottom:6px}strong{color:#1a1a1a}@media print{body{padding:20px}}</style></head><body><h1>Company Research: ${researchCompanyName.trim()}</h1>${htmlContent}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 300);
+  }, [researchReport, researchCompanyName, renderResearchMarkdown]);
+
+  const onClearResearchCache = useCallback((companyNameToRemove: string) => {
+    const cache = readResearchCache();
+    const cacheKey = companyNameToRemove.toLowerCase();
+    delete cache[cacheKey];
+    writeResearchCache(cache);
+    setResearchRecentSearches((prev) => prev.filter((n) => n.toLowerCase() !== cacheKey));
+  }, [readResearchCache, writeResearchCache]);
   // ─── End Company Research Functions ──────────────────────
 
   const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>, customInstructions?: string) => {
@@ -2880,6 +2892,14 @@ function HomePageInner() {
                       >
                         <Download className="h-3.5 w-3.5" />
                         Download .md
+                      </button>
+                      <button
+                        onClick={onPrintResearch}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                        style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        Print
                       </button>
                       <button
                         onClick={() => {
