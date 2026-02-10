@@ -1014,7 +1014,7 @@ function HomePageInner() {
     const names = Object.keys(cache).sort(
       (a, b) => new Date(cache[b].createdAt).getTime() - new Date(cache[a].createdAt).getTime()
     );
-    setResearchRecentSearches(names.slice(0, 10));
+    setResearchRecentSearches(names.slice(0, 5));
   }, [readResearchCache]);
 
   const onResearchCompany = useCallback(async (name?: string) => {
@@ -1029,7 +1029,7 @@ function HomePageInner() {
       setResearchCompanyName(searchName);
       setResearchRecentSearches((prev) => {
         const filtered = prev.filter((n) => n.toLowerCase() !== cacheKey);
-        return [searchName, ...filtered].slice(0, 10);
+        return [searchName, ...filtered].slice(0, 5);
       });
       return;
     }
@@ -1054,7 +1054,7 @@ function HomePageInner() {
         writeResearchCache(updatedCache);
         setResearchRecentSearches((prev) => {
           const filtered = prev.filter((n) => n.toLowerCase() !== cacheKey);
-          return [searchName, ...filtered].slice(0, 10);
+          return [searchName, ...filtered].slice(0, 5);
         });
       }
     } catch (e: any) {
@@ -2809,28 +2809,39 @@ function HomePageInner() {
                 </div>
               </div>
 
-              {/* Recent Searches */}
-              {researchRecentSearches.length > 0 && !researchReport && !researchLoading && (
-                <div className="rounded-xl p-6 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
-                  <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--foreground)" }}>Recent searches</h3>
+              {/* Recent Searches - always visible when there are cached results */}
+              {researchRecentSearches.length > 0 && !researchLoading && (
+                <div className="rounded-xl p-4 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <h3 className="text-xs font-semibold mb-2.5 uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Recent researches</h3>
                   <div className="flex flex-wrap gap-2">
-                    {researchRecentSearches.map((rName) => (
-                      <div
-                        key={rName}
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer hover:opacity-80 group"
-                        style={{ background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)" }}
-                      >
-                        <span onClick={() => { setResearchCompanyName(rName); onResearchCompany(rName); }}>{rName}</span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onClearResearchCache(rName); }}
-                          className="ml-1 opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity"
-                          style={{ color: "var(--muted-foreground)" }}
-                          title="Remove from cache"
+                    {researchRecentSearches.map((rName) => {
+                      const isActive = researchReport && researchCompanyName.trim().toLowerCase() === rName.toLowerCase();
+                      return (
+                        <div
+                          key={rName}
+                          onClick={() => { setResearchCompanyName(rName); onResearchCompany(rName); }}
+                          className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all cursor-pointer group ${
+                            isActive ? "gradient-primary text-white shadow-md" : "hover:opacity-80"
+                          }`}
+                          style={isActive ? {} : { background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)" }}
                         >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                          <Building2 className="h-3.5 w-3.5" />
+                          <span>{rName}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onClearResearchCache(rName);
+                              if (isActive) { setResearchReport(""); setResearchCompanyName(""); }
+                            }}
+                            className={`ml-1 transition-opacity ${isActive ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-60 hover:opacity-100"}`}
+                            style={{ color: isActive ? "white" : "var(--muted-foreground)" }}
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
