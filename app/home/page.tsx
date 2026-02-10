@@ -23,6 +23,7 @@ import {
   Copy,
   Download,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 
 type Job = {
@@ -134,7 +135,15 @@ function HomePageInner() {
     syncProfile();
   }, []);
 
-  const [activeTab, setActiveTab] = useState<"picks" | "external">("picks");
+  const [activeTab, setActiveTab] = useState<"picks" | "external" | "research">("picks");
+
+  // Company research state
+  const [researchCompanyName, setResearchCompanyName] = useState("");
+  const [researchReport, setResearchReport] = useState("");
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState("");
+  const [researchCopied, setResearchCopied] = useState(false);
+  const [researchRecentSearches, setResearchRecentSearches] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -980,6 +989,139 @@ function HomePageInner() {
     setCoverLetterLangModalOpen(true);
   }, []);
 
+  // ─── Company Research Functions ──────────────────────────
+  const RESEARCH_CACHE_KEY = "jobPicks_companyResearch_v1";
+
+  const readResearchCache = useCallback((): Record<string, { report: string; createdAt: string }> => {
+    try {
+      const raw = localStorage.getItem(RESEARCH_CACHE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const writeResearchCache = useCallback((cache: Record<string, { report: string; createdAt: string }>) => {
+    try {
+      localStorage.setItem(RESEARCH_CACHE_KEY, JSON.stringify(cache));
+    } catch { /* ignore */ }
+  }, []);
+
+  // Load recent research searches on mount
+  useEffect(() => {
+    const cache = readResearchCache();
+    const names = Object.keys(cache).sort(
+      (a, b) => new Date(cache[b].createdAt).getTime() - new Date(cache[a].createdAt).getTime()
+    );
+    setResearchRecentSearches(names.slice(0, 10));
+  }, [readResearchCache]);
+
+  const onResearchCompany = useCallback(async (name?: string) => {
+    const searchName = (name || researchCompanyName).trim();
+    if (!searchName) return;
+
+    // Check cache first
+    const cache = readResearchCache();
+    const cacheKey = searchName.toLowerCase();
+    if (cache[cacheKey]) {
+      setResearchReport(cache[cacheKey].report);
+      setResearchCompanyName(searchName);
+      setResearchRecentSearches((prev) => {
+        const filtered = prev.filter((n) => n.toLowerCase() !== cacheKey);
+        return [searchName, ...filtered].slice(0, 10);
+      });
+      return;
+    }
+
+    setResearchLoading(true);
+    setResearchError("");
+    setResearchReport("");
+
+    try {
+      const res = await fetch("/api/company-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyName: searchName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Research failed");
+
+      if (data.report) {
+        setResearchReport(data.report);
+        const updatedCache = readResearchCache();
+        updatedCache[cacheKey] = { report: data.report, createdAt: new Date().toISOString() };
+        writeResearchCache(updatedCache);
+        setResearchRecentSearches((prev) => {
+          const filtered = prev.filter((n) => n.toLowerCase() !== cacheKey);
+          return [searchName, ...filtered].slice(0, 10);
+        });
+      }
+    } catch (e: any) {
+      setResearchError(e?.message || "Something went wrong");
+    } finally {
+      setResearchLoading(false);
+    }
+  }, [researchCompanyName, readResearchCache, writeResearchCache]);
+
+  const onCopyResearch = useCallback(async () => {
+    if (!researchReport) return;
+    try {
+      await navigator.clipboard.writeText(researchReport);
+      setResearchCopied(true);
+      setTimeout(() => setResearchCopied(false), 2000);
+    } catch { /* ignore */ }
+  }, [researchReport]);
+
+  const onDownloadResearch = useCallback(() => {
+    if (!researchReport) return;
+    const blob = new Blob([researchReport], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Company Research - ${researchCompanyName.trim() || "Report"}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [researchReport, researchCompanyName]);
+
+  const onClearResearchCache = useCallback((companyNameToRemove: string) => {
+    const cache = readResearchCache();
+    const cacheKey = companyNameToRemove.toLowerCase();
+    delete cache[cacheKey];
+    writeResearchCache(cache);
+    setResearchRecentSearches((prev) => prev.filter((n) => n.toLowerCase() !== cacheKey));
+  }, [readResearchCache, writeResearchCache]);
+
+  const renderResearchMarkdown = useCallback((text: string) => {
+    const lines = text.split("\n");
+    const html: string[] = [];
+    let inList = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("## ")) {
+        if (inList) { html.push("</ul>"); inList = false; }
+        html.push(`<h2 class="text-lg font-bold mt-6 mb-3" style="color: var(--foreground)">${trimmed.slice(3)}</h2>`);
+      } else if (trimmed.startsWith("### ")) {
+        if (inList) { html.push("</ul>"); inList = false; }
+        html.push(`<h3 class="text-base font-semibold mt-4 mb-2" style="color: var(--foreground)">${trimmed.slice(4)}</h3>`);
+      } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+        if (!inList) { html.push('<ul class="space-y-1.5 mb-3">'); inList = true; }
+        const content = trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--foreground)">$1</strong>');
+        html.push(`<li class="flex gap-2 text-sm leading-relaxed" style="color: var(--muted-foreground)"><span style="color: var(--primary)">•</span><span>${content}</span></li>`);
+      } else if (trimmed === "") {
+        if (inList) { html.push("</ul>"); inList = false; }
+      } else {
+        if (inList) { html.push("</ul>"); inList = false; }
+        const content = trimmed.replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--foreground)">$1</strong>');
+        html.push(`<p class="text-sm leading-relaxed mb-2" style="color: var(--muted-foreground)">${content}</p>`);
+      }
+    }
+    if (inList) html.push("</ul>");
+    return html.join("\n");
+  }, []);
+  // ─── End Company Research Functions ──────────────────────
+
   const onGenerateExternalCoverLetter = useCallback(async (preferredLanguage: "auto" | "en" = "auto", customTemplate?: string, paragraphSettings?: Record<number, boolean>, customInstructions?: string) => {
     setExternalFormError(null);
     const url = externalUrl.trim();
@@ -1636,14 +1778,6 @@ function HomePageInner() {
               <LayoutTemplate className="h-4 w-4" />
               Templates
             </Link>
-            <Link
-              href="/company-research"
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              <Building2 className="h-4 w-4" />
-              Company Info
-            </Link>
             <button
               onClick={editProfile}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 gradient-primary text-white hover:opacity-90"
@@ -1683,9 +1817,6 @@ function HomePageInner() {
             <Link href="/cover-letters" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
               <LayoutTemplate className="h-4 w-4" /> Templates
             </Link>
-            <Link href="/company-research" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
-              <Building2 className="h-4 w-4" /> Company Info
-            </Link>
             <button onClick={editProfile} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium gradient-primary text-white">
               <Settings className="h-4 w-4" /> Edit job search
             </button>
@@ -1721,6 +1852,17 @@ function HomePageInner() {
             >
               <ExternalLink className="h-4 w-4" />
               External Job
+            </button>
+            <button
+              onClick={() => setActiveTab("research")}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "research"
+                  ? "gradient-primary text-white shadow-md"
+                  : "hover:bg-white/10"
+              }`}
+            >
+              <Building2 className="h-4 w-4" />
+              Company Research
             </button>
           </div>
 
@@ -2610,6 +2752,175 @@ function HomePageInner() {
                 })()}
                 </div>
               </div>
+            </>
+          )}
+
+          {/* Company Research Tab */}
+          {activeTab === "research" && (
+            <>
+              {/* Header */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: "var(--foreground)" }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center gradient-primary">
+                    <Building2 className="h-5 w-5 text-white" />
+                  </div>
+                  Company Research
+                </h1>
+                <p className="mt-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  Enter a company name to get a comprehensive AI-powered deep analysis
+                </p>
+              </div>
+
+              {/* Search Box */}
+              <div className="rounded-xl p-6 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "var(--muted-foreground)" }} />
+                    <input
+                      type="text"
+                      placeholder="e.g. Google, Stripe, SpaceX..."
+                      value={researchCompanyName}
+                      onChange={(e) => setResearchCompanyName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !researchLoading) onResearchCompany(); }}
+                      className="w-full rounded-xl border pl-10 pr-4 py-3 text-sm outline-none transition-colors focus:ring-2 focus:ring-purple-500/30"
+                      style={{ background: "var(--secondary)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => onResearchCompany()}
+                    disabled={researchLoading || !researchCompanyName.trim()}
+                    className="flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 gradient-primary"
+                  >
+                    {researchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {researchLoading ? "Researching..." : "Research"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Recent Searches */}
+              {researchRecentSearches.length > 0 && !researchReport && !researchLoading && (
+                <div className="rounded-xl p-6 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--foreground)" }}>Recent searches</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {researchRecentSearches.map((rName) => (
+                      <div
+                        key={rName}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer hover:opacity-80 group"
+                        style={{ background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+                      >
+                        <span onClick={() => { setResearchCompanyName(rName); onResearchCompany(rName); }}>{rName}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onClearResearchCache(rName); }}
+                          className="ml-1 opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity"
+                          style={{ color: "var(--muted-foreground)" }}
+                          title="Remove from cache"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Loading State */}
+              {researchLoading && (
+                <div className="rounded-xl p-12 text-center" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl gradient-primary animate-pulse">
+                      <Building2 className="h-8 w-8 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
+                        Researching {researchCompanyName.trim()}...
+                      </p>
+                      <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
+                        This may take 10–20 seconds for a thorough analysis
+                      </p>
+                    </div>
+                    <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--primary)" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Error State */}
+              {researchError && !researchLoading && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-6 mb-6">
+                  <p className="text-sm text-red-400">{researchError}</p>
+                </div>
+              )}
+
+              {/* Report */}
+              {researchReport && !researchLoading && (
+                <div className="rounded-xl" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  {/* Report Header */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-primary">
+                        <Building2 className="h-4 w-4 text-white" />
+                      </div>
+                      <h2 className="text-base font-bold" style={{ color: "var(--foreground)" }}>{researchCompanyName.trim()}</h2>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={onCopyResearch}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                        style={{
+                          border: "1px solid var(--border)",
+                          background: researchCopied ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                          color: researchCopied ? "#22c55e" : "var(--foreground)",
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        {researchCopied ? "Copied!" : "Copy"}
+                      </button>
+                      <button
+                        onClick={onDownloadResearch}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 gradient-primary"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download .md
+                      </button>
+                      <button
+                        onClick={() => {
+                          const cache = readResearchCache();
+                          delete cache[researchCompanyName.trim().toLowerCase()];
+                          writeResearchCache(cache);
+                          onResearchCompany();
+                        }}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                        style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Report Body */}
+                  <div
+                    className="px-6 py-6 prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: renderResearchMarkdown(researchReport) }}
+                  />
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!researchReport && !researchLoading && !researchError && researchRecentSearches.length === 0 && (
+                <div className="rounded-xl p-12 text-center" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "var(--secondary)" }}>
+                      <Building2 className="h-8 w-8" style={{ color: "var(--muted-foreground)" }} />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold" style={{ color: "var(--foreground)" }}>Ready to research</p>
+                      <p className="text-sm mt-1 max-w-md" style={{ color: "var(--muted-foreground)" }}>
+                        Enter any company name above to get a comprehensive report including financials, culture, leadership, market position, and what it&apos;s like to work there.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
