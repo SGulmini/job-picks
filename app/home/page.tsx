@@ -1636,6 +1636,14 @@ function HomePageInner() {
               <LayoutTemplate className="h-4 w-4" />
               Templates
             </Link>
+            <Link
+              href="/company-research"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: "var(--muted-foreground)" }}
+            >
+              <Building2 className="h-4 w-4" />
+              Company Info
+            </Link>
             <button
               onClick={editProfile}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 gradient-primary text-white hover:opacity-90"
@@ -1674,6 +1682,9 @@ function HomePageInner() {
             </Link>
             <Link href="/cover-letters" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
               <LayoutTemplate className="h-4 w-4" /> Templates
+            </Link>
+            <Link href="/company-research" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium" style={{ color: "var(--foreground)" }}>
+              <Building2 className="h-4 w-4" /> Company Info
             </Link>
             <button onClick={editProfile} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium gradient-primary text-white">
               <Settings className="h-4 w-4" /> Edit job search
