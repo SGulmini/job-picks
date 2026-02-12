@@ -9,9 +9,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap open ios",
+    "cap:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
     "@mozilla/readability": "^0.6.0",
     "@supabase/supabase-js": "^2.89.0",
     "docx": "^9.5.1",
@@ -27,6 +33,7 @@
     "stripe": "^20.1.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
     "@tailwindcss/postcss": "^4",
     "@types/jsdom": "^27.0.0",
     "@types/node": "^20",

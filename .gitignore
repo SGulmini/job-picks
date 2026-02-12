@@ -42,3 +42,12 @@ tmp-cv.*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Capacitor
+capacitor-webdir/
+ios/App/Pods/
+ios/App/App/public/
+android/app/src/main/assets/public/
+android/.gradle/
+android/app/build/
+android/build/
