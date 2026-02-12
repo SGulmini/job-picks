@@ -25,6 +25,8 @@ import {
   ChevronDown,
   Loader2,
   Printer,
+  Globe,
+  RefreshCw,
 } from "lucide-react";
 
 type Job = {
@@ -136,7 +138,7 @@ function HomePageInner() {
     syncProfile();
   }, []);
 
-  const [activeTab, setActiveTab] = useState<"picks" | "external" | "research">("picks");
+  const [activeTab, setActiveTab] = useState<"picks" | "external" | "research" | "sector">("picks");
 
   // Company research state
   const [researchCompanyName, setResearchCompanyName] = useState("");
@@ -168,6 +170,11 @@ function HomePageInner() {
   // Paragraph settings: true = keep as-is (fixed), false = adapt to position
   const [templateParagraphSettings, setTemplateParagraphSettings] = useState<Record<number, boolean>>({});
 
+  // Cover letter paragraph refresh & enhance (shared by job picks + external)
+  const [clParagraphLoading, setClParagraphLoading] = useState<string | null>(null); // "jobId::paragraphIndex"
+  const [clEnhanceMode, setClEnhanceMode] = useState<string | null>(null); // jobId
+  const [clEnhanceInstructions, setClEnhanceInstructions] = useState<Record<string, string>>({});
+
   const [profileRaw, setProfileRaw] = useState<string | null>(null);
 
   const [externalJobId, setExternalJobId] = useState<string>("");
@@ -179,6 +186,27 @@ function HomePageInner() {
   const [externalAiInstructions, setExternalAiInstructions] = useState<string>("");
   const [externalJob, setExternalJob] = useState<ExternalJobDraft | null>(null);
   const [externalFormError, setExternalFormError] = useState<string | null>(null);
+
+  // Sector analysis state
+  type SectorCompany = { name: string; headquarters?: string; offices: string[]; website?: string; careersUrl?: string };
+  const [sectorSector, setSectorSector] = useState("");
+  const [sectorCountry, setSectorCountry] = useState("");
+  const [sectorCity, setSectorCity] = useState("");
+  const [sectorCompanies, setSectorCompanies] = useState<SectorCompany[]>([]);
+  const [sectorLoading, setSectorLoading] = useState(false);
+  const [sectorError, setSectorError] = useState("");
+  const [sectorRecentSearches, setSectorRecentSearches] = useState<
+    { sector: string; country: string; city: string; label: string }[]
+  >([]);
+  const [sectorLetterByCompany, setSectorLetterByCompany] = useState<Record<string, string>>({});
+  const [sectorLetterLoadingCompany, setSectorLetterLoadingCompany] = useState<string | null>(null);
+  const [sectorLetterErrorByCompany, setSectorLetterErrorByCompany] = useState<Record<string, string>>({});
+  const [sectorLetterCopied, setSectorLetterCopied] = useState<string | null>(null);
+  const [sectorLetterExpandedCompany, setSectorLetterExpandedCompany] = useState<string | null>(null);
+  const [sectorLetterEnhanceMode, setSectorLetterEnhanceMode] = useState<string | null>(null);
+  const [sectorLetterInstructions, setSectorLetterInstructions] = useState<Record<string, string>>({});
+  // key = "companyName::paragraphIndex"
+  const [sectorParagraphLoading, setSectorParagraphLoading] = useState<string | null>(null);
 
   const parsedProfile = useMemo(() => {
     if (!profileRaw) return null;
@@ -674,9 +702,13 @@ function HomePageInner() {
         params.set("excludeIds", excludeIds.slice(0, 120).join(","));
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
       const response = await fetch(`/api/jobs?${params.toString()}`, { 
-        cache: "no-store" 
-      });
+        cache: "no-store",
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -733,7 +765,10 @@ function HomePageInner() {
         setError("No jobs found matching your criteria. Try adjusting your profile.");
       }
     } catch (err: any) {
-      setError(err.message || "Something went wrong while loading jobs.");
+      const msg = err?.name === "AbortError"
+        ? "La richiesta ha impiegato troppo tempo. Riprova tra poco o controlla la connessione."
+        : (err?.message || "Something went wrong while loading jobs.");
+      setError(msg);
       setJobs([]);
     } finally {
       setJobsLoading(false);
@@ -978,6 +1013,133 @@ function HomePageInner() {
     }
   }, [coverLetterByJobId]);
 
+  // Refresh a single paragraph in a cover letter (works for any job/external)
+  const onRefreshCoverLetterParagraph = useCallback(async (jobId: string, paragraphIndex: number) => {
+    const version = selectedCoverLetterVersion[jobId] || "long";
+    const fullText =
+      version === "creative"
+        ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "very_short"
+        ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : version === "short"
+        ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+        : coverLetterByJobId[jobId];
+    if (!fullText) return;
+
+    const paragraphs = fullText.split(/\n\s*\n/);
+    if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) return;
+
+    const loadingKey = `${jobId}::${paragraphIndex}`;
+    setClParagraphLoading(loadingKey);
+
+    try {
+      // Reuse the spontaneous-letter API's paragraph refresh since it's purpose-built for this
+      const candidate = await readCandidateProfile();
+      const res = await fetch("/api/spontaneous-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: "the company",
+          profile: parsedProfile,
+          candidate,
+          preferredLanguage: "en",
+          refreshParagraph: {
+            index: paragraphIndex,
+            currentText: paragraphs[paragraphIndex],
+            fullLetter: fullText,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Paragraph refresh failed");
+
+      if (data.paragraph) {
+        const newParagraphs = [...paragraphs];
+        newParagraphs[paragraphIndex] = data.paragraph.trim();
+        const newText = newParagraphs.join("\n\n");
+
+        // Update the correct version state
+        if (version === "creative") {
+          setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else if (version === "very_short") {
+          setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else if (version === "short") {
+          setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else {
+          setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        }
+      }
+    } catch (e: any) {
+      console.error("Paragraph refresh error:", e?.message);
+    } finally {
+      setClParagraphLoading(null);
+    }
+  }, [coverLetterByJobId, coverLetterShortByJobId, coverLetterVeryShortByJobId, coverLetterCreativeByJobId, selectedCoverLetterVersion, readCandidateProfile, parsedProfile]);
+
+  // Enhance an entire cover letter with user instructions
+  const onEnhanceCoverLetter = useCallback(async (job: Job, instructions: string) => {
+    const jobId = String(job.id);
+    if (!instructions.trim()) return;
+
+    setCoverLetterLoadingId(jobId);
+    setClEnhanceMode(null);
+
+    try {
+      const candidate = await readCandidateProfile();
+      const version = selectedCoverLetterVersion[jobId] || "long";
+      const currentText =
+        version === "creative"
+          ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
+          : version === "very_short"
+          ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+          : version === "short"
+          ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
+          : coverLetterByJobId[jobId];
+
+      const res = await fetch("/api/cover-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job: {
+            id: job.id,
+            title: job.title,
+            company: job.company,
+            location: job.location,
+            url: job.url,
+            description: job.description,
+          },
+          profile: parsedProfile,
+          candidate,
+          preferredLanguage: "auto",
+          customInstructions: instructions,
+          currentCoverLetter: currentText,
+          regenerateVersion: version,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Enhancement failed");
+
+      // The API returns the regenerated version in the corresponding field
+      const newText = data.coverLetter || data.coverLetterShort || data.coverLetterVeryShort || data.coverLetterCreative;
+      if (newText) {
+        if (version === "creative") {
+          setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else if (version === "very_short") {
+          setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else if (version === "short") {
+          setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        } else {
+          setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: newText }));
+        }
+      }
+    } catch (e: any) {
+      setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: e?.message || "Enhancement failed" }));
+    } finally {
+      setCoverLetterLoadingId(null);
+    }
+  }, [coverLetterByJobId, coverLetterShortByJobId, coverLetterVeryShortByJobId, coverLetterCreativeByJobId, selectedCoverLetterVersion, readCandidateProfile, parsedProfile]);
+
   const openCoverLetterLanguageModalForJob = useCallback((job: Job) => {
     setCoverLetterLangModalSource("job");
     setCoverLetterLangModalJob(job);
@@ -989,6 +1151,40 @@ function HomePageInner() {
     setCoverLetterLangModalJob(null);
     setCoverLetterLangModalOpen(true);
   }, []);
+
+  // ─── Sector Analysis Cache ─────────────────────────────
+  const SECTOR_CACHE_KEY = "jobPicks_sectorAnalysis_v1";
+
+  type SectorCacheEntry = { companies: SectorCompany[]; sector: string; country: string; city: string; createdAt: string };
+
+  const readSectorCache = useCallback((): Record<string, SectorCacheEntry> => {
+    try {
+      const raw = localStorage.getItem(SECTOR_CACHE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  }, []);
+
+  const writeSectorCache = useCallback((cache: Record<string, SectorCacheEntry>) => {
+    try { localStorage.setItem(SECTOR_CACHE_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
+  }, []);
+
+  const sectorCacheKey = useCallback((sector: string, country: string, city: string) =>
+    `${sector.toLowerCase().trim()}::${country.toLowerCase().trim()}::${city.toLowerCase().trim()}`, []);
+
+  // Load recent sector searches on mount
+  useEffect(() => {
+    const cache = readSectorCache();
+    const entries = Object.values(cache)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5)
+      .map((e) => ({
+        sector: e.sector,
+        country: e.country,
+        city: e.city,
+        label: e.city ? `${e.sector} in ${e.city}, ${e.country}` : `${e.sector} in ${e.country}`,
+      }));
+    setSectorRecentSearches(entries);
+  }, [readSectorCache]);
 
   // ─── Company Research Functions ──────────────────────────
   const RESEARCH_CACHE_KEY = "jobPicks_companyResearch_v1";
@@ -1063,6 +1259,188 @@ function HomePageInner() {
       setResearchLoading(false);
     }
   }, [researchCompanyName, readResearchCache, writeResearchCache]);
+
+  const onSectorAnalysis = useCallback(async (overrideSector?: string, overrideCountry?: string, overrideCity?: string) => {
+    const sector = (overrideSector ?? sectorSector).trim();
+    const country = (overrideCountry ?? sectorCountry).trim();
+    const city = (overrideCity ?? sectorCity).trim();
+    if (!sector || !country) return;
+
+    // Update inputs to reflect what we're searching
+    setSectorSector(sector);
+    setSectorCountry(country);
+    setSectorCity(city);
+
+    // Check cache first
+    const cache = readSectorCache();
+    const key = sectorCacheKey(sector, country, city);
+    if (cache[key]) {
+      setSectorCompanies(cache[key].companies);
+      setSectorError("");
+      // Bump to top of recents
+      setSectorRecentSearches((prev) => {
+        const label = city ? `${sector} in ${city}, ${country}` : `${sector} in ${country}`;
+        const filtered = prev.filter((e) => sectorCacheKey(e.sector, e.country, e.city) !== key);
+        return [{ sector, country, city, label }, ...filtered].slice(0, 5);
+      });
+      return;
+    }
+
+    setSectorLoading(true);
+    setSectorError("");
+    setSectorCompanies([]);
+
+    try {
+      const res = await fetch("/api/sector-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sector,
+          country,
+          city: city || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Sector analysis failed");
+
+      if (Array.isArray(data.companies)) {
+        setSectorCompanies(data.companies);
+
+        // Save to cache
+        const updatedCache = readSectorCache();
+        updatedCache[key] = { companies: data.companies, sector, country, city, createdAt: new Date().toISOString() };
+        // Keep cache bounded to 20 entries
+        const entries = Object.entries(updatedCache).sort(
+          ([, a], [, b]) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        const trimmed = Object.fromEntries(entries.slice(0, 20));
+        writeSectorCache(trimmed);
+
+        // Update recent searches
+        const label = city ? `${sector} in ${city}, ${country}` : `${sector} in ${country}`;
+        setSectorRecentSearches((prev) => {
+          const filtered = prev.filter((e) => sectorCacheKey(e.sector, e.country, e.city) !== key);
+          return [{ sector, country, city, label }, ...filtered].slice(0, 5);
+        });
+      }
+    } catch (e: any) {
+      setSectorError(e?.message || "Something went wrong");
+    } finally {
+      setSectorLoading(false);
+    }
+  }, [sectorSector, sectorCountry, sectorCity, readSectorCache, writeSectorCache, sectorCacheKey]);
+
+  const onGenerateSpontaneousLetter = useCallback(async (company: SectorCompany, customInstructions?: string) => {
+    const companyKey = company.name;
+
+    // If already generated and no custom instructions, just toggle visibility
+    if (sectorLetterByCompany[companyKey] && !customInstructions) {
+      setSectorLetterExpandedCompany((prev) => (prev === companyKey ? null : companyKey));
+      return;
+    }
+
+    // Check candidate profile first
+    const hasProfile = await hasCandidateProfile();
+    if (!hasProfile) {
+      router.push(`/cover-letter/setup?returnTo=${encodeURIComponent("/home")}`);
+      return;
+    }
+
+    setSectorLetterLoadingCompany(companyKey);
+    setSectorLetterErrorByCompany((prev) => ({ ...prev, [companyKey]: "" }));
+    setSectorLetterEnhanceMode(null);
+
+    try {
+      const candidate = await readCandidateProfile();
+      const res = await fetch("/api/spontaneous-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: company.name,
+          sector: sectorSector.trim(),
+          country: sectorCountry.trim(),
+          city: sectorCity.trim() || undefined,
+          headquarters: company.headquarters,
+          website: company.website,
+          profile: parsedProfile,
+          candidate,
+          preferredLanguage: "en",
+          customInstructions: customInstructions || undefined,
+          previousLetter: customInstructions ? (sectorLetterByCompany[companyKey] || undefined) : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Letter generation failed");
+
+      if (data.letter) {
+        setSectorLetterByCompany((prev) => ({ ...prev, [companyKey]: data.letter }));
+        setSectorLetterExpandedCompany(companyKey);
+      }
+    } catch (e: any) {
+      setSectorLetterErrorByCompany((prev) => ({ ...prev, [companyKey]: e?.message || "Something went wrong" }));
+    } finally {
+      setSectorLetterLoadingCompany(null);
+    }
+  }, [sectorLetterByCompany, hasCandidateProfile, readCandidateProfile, parsedProfile, sectorSector, sectorCountry, sectorCity, router]);
+
+  const onRefreshSectorParagraph = useCallback(async (company: SectorCompany, paragraphIndex: number) => {
+    const companyKey = company.name;
+    const fullLetter = sectorLetterByCompany[companyKey];
+    if (!fullLetter) return;
+
+    const paragraphs = fullLetter.split(/\n\s*\n/);
+    if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) return;
+
+    const loadingKey = `${companyKey}::${paragraphIndex}`;
+    setSectorParagraphLoading(loadingKey);
+
+    try {
+      const candidate = await readCandidateProfile();
+      const res = await fetch("/api/spontaneous-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: company.name,
+          sector: sectorSector.trim(),
+          country: sectorCountry.trim(),
+          city: sectorCity.trim() || undefined,
+          headquarters: company.headquarters,
+          website: company.website,
+          profile: parsedProfile,
+          candidate,
+          preferredLanguage: "en",
+          refreshParagraph: {
+            index: paragraphIndex,
+            currentText: paragraphs[paragraphIndex],
+            fullLetter,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Paragraph refresh failed");
+
+      if (data.paragraph) {
+        const newParagraphs = [...paragraphs];
+        newParagraphs[paragraphIndex] = data.paragraph.trim();
+        setSectorLetterByCompany((prev) => ({ ...prev, [companyKey]: newParagraphs.join("\n\n") }));
+      }
+    } catch (e: any) {
+      // silently fail for paragraph refresh
+      console.error("Paragraph refresh error:", e?.message);
+    } finally {
+      setSectorParagraphLoading(null);
+    }
+  }, [sectorLetterByCompany, readCandidateProfile, parsedProfile, sectorSector, sectorCountry, sectorCity]);
+
+  const onCopySectorLetter = useCallback(async (companyName: string) => {
+    const letter = sectorLetterByCompany[companyName];
+    if (!letter) return;
+    try {
+      await navigator.clipboard.writeText(letter);
+      setSectorLetterCopied(companyName);
+      setTimeout(() => setSectorLetterCopied(null), 2000);
+    } catch { /* ignore */ }
+  }, [sectorLetterByCompany]);
 
   const onCopyResearch = useCallback(async () => {
     if (!researchReport) return;
@@ -1728,7 +2106,7 @@ function HomePageInner() {
         borderBottom: "1px solid var(--border)", 
         background: "rgba(var(--background), 0.8)" 
       }}>
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-6">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-8">
           {/* Left: Logo & User */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -1840,7 +2218,7 @@ function HomePageInner() {
       </header>
 
       <main className="h-[calc(100vh-73px)] overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6 overflow-hidden">
+        <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8 overflow-hidden">
           {/* Tab Switcher */}
           <div className="mb-6 flex items-center gap-2 p-1.5 rounded-xl w-fit" style={{ background: "var(--secondary)" }}>
             <button
@@ -1875,6 +2253,17 @@ function HomePageInner() {
             >
               <Building2 className="h-4 w-4" />
               Company Research
+            </button>
+            <button
+              onClick={() => setActiveTab("sector")}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "sector"
+                  ? "gradient-primary text-white shadow-md"
+                  : "hover:bg-white/10"
+              }`}
+            >
+              <Globe className="h-4 w-4" />
+              Sector Analysis
             </button>
           </div>
 
@@ -2294,149 +2683,172 @@ function HomePageInner() {
                           </button>
                         </div>
                       </div>
-                      <textarea
-                        readOnly
-                        value={
-                          (selectedCoverLetterVersion[String(job.id)] || "long") === "creative"
-                            ? coverLetterCreativeByJobId[String(job.id)] || coverLetterByJobId[String(job.id)]
-                            : (selectedCoverLetterVersion[String(job.id)] || "long") === "very_short"
-                            ? coverLetterVeryShortByJobId[String(job.id)] ||
-                              coverLetterShortByJobId[String(job.id)] ||
-                              coverLetterByJobId[String(job.id)]
-                            : (selectedCoverLetterVersion[String(job.id)] || "long") === "short"
-                            ? coverLetterShortByJobId[String(job.id)] || coverLetterByJobId[String(job.id)]
-                            : coverLetterByJobId[String(job.id)]
-                        }
-                        className="mt-3 w-full min-h-[200px] p-3 rounded-lg text-sm leading-relaxed resize-y"
-                        style={{
-                          border: "1px solid var(--jp-input-border)",
-                          backgroundColor: "var(--jp-input-bg)",
-                          color: "var(--jp-input-fg)",
-                        }}
-                      />
+                      {/* Paragraph-based display with refresh buttons */}
+                      {(() => {
+                        const jId = String(job.id);
+                        const currentVersion = selectedCoverLetterVersion[jId] || "long";
+                        const displayText =
+                          currentVersion === "creative"
+                            ? coverLetterCreativeByJobId[jId] || coverLetterByJobId[jId]
+                            : currentVersion === "very_short"
+                            ? coverLetterVeryShortByJobId[jId] || coverLetterShortByJobId[jId] || coverLetterByJobId[jId]
+                            : currentVersion === "short"
+                            ? coverLetterShortByJobId[jId] || coverLetterByJobId[jId]
+                            : coverLetterByJobId[jId];
+
+                        if (!displayText) return null;
+
+                        const allParagraphs = displayText.split(/\n\s*\n/);
+
+                        const isContentParagraph = (t: string, idx: number, total: number): boolean => {
+                          const trimmed = t.trim();
+                          const lines = trimmed.split("\n").map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+                          const wordCount = trimmed.split(/\s+/).length;
+                          if (wordCount < 15) return false;
+                          if (idx === 0) return false;
+                          if (idx >= total - 1 && wordCount < 25) return false;
+                          if (idx >= total - 2 && wordCount < 10) return false;
+                          if (/^\[?date\]?$/i.test(trimmed)) return false;
+                          if (/^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}$/.test(trimmed)) return false;
+                          if (/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d/i.test(trimmed)) return false;
+                          if (/^(subject|object|oggetto|objet)\s*:/i.test(trimmed)) return false;
+                          if (/^(dear|gentil[ei]|cher|sehr geehrt)/i.test(trimmed) && wordCount < 10) return false;
+                          if (/^(sincerely|regards|best regards|kind regards|cordiali saluti|cordialement|mit freundlichen)/i.test(trimmed) && wordCount < 10) return false;
+                          if (lines.length > 1 && lines.filter((l: string) => l.length < 45).length / lines.length > 0.7) return false;
+                          return true;
+                        };
+
+                        return (
+                          <div className="mt-3 rounded-lg" style={{ border: "1px solid var(--jp-input-border)", backgroundColor: "var(--jp-input-bg)" }}>
+                            <div className="px-4 py-3 text-sm leading-relaxed space-y-0">
+                              {allParagraphs.map((paragraph: string, pIdx: number) => {
+                                const paraLoadingKey = `${jId}::${pIdx}`;
+                                const isParaLoading = clParagraphLoading === paraLoadingKey;
+                                const isContent = isContentParagraph(paragraph, pIdx, allParagraphs.length);
+
+                                return (
+                                  <div
+                                    key={pIdx}
+                                    className="flex gap-3 items-start"
+                                    style={{
+                                      paddingTop: pIdx === 0 ? 0 : 10,
+                                      paddingBottom: pIdx < allParagraphs.length - 1 ? 10 : 0,
+                                      borderBottom: pIdx < allParagraphs.length - 1 && isContent ? "1px dashed var(--jp-input-border)" : "none",
+                                    }}
+                                  >
+                                    <div
+                                      className="flex-1 whitespace-pre-wrap transition-opacity"
+                                      style={{
+                                        color: "var(--jp-input-fg)",
+                                        opacity: isParaLoading ? 0.35 : 1,
+                                      }}
+                                    >
+                                      {paragraph}
+                                      {isParaLoading && (
+                                        <span className="inline-flex items-center ml-2">
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--primary)" }} />
+                                        </span>
+                                      )}
+                                    </div>
+                                    {isContent && (
+                                      <div className="flex-shrink-0 pt-0.5">
+                                        {!isParaLoading && !clParagraphLoading ? (
+                                          <button
+                                            onClick={() => onRefreshCoverLetterParagraph(jId, pIdx)}
+                                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors hover:opacity-80"
+                                            style={{
+                                              border: "1px solid var(--jp-input-border)",
+                                              color: "var(--jp-panel-fg)",
+                                              opacity: 0.6,
+                                            }}
+                                            title="Refresh this paragraph"
+                                          >
+                                            <RefreshCw className="h-3 w-3" />
+                                          </button>
+                                        ) : isParaLoading ? (
+                                          <div
+                                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
+                                            style={{ border: "1px solid transparent" }}
+                                          >
+                                            <Loader2 className="h-3 w-3 animate-spin" style={{ color: "var(--primary)" }} />
+                                          </div>
+                                        ) : (
+                                          <div className="w-7" />
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       
-                      {/* Custom Instructions Section */}
-                      <div className="mt-4">
-                        <div className="mb-2">
-                          <label className="block text-xs font-semibold mb-1.5">
-                            Custom instructions (optional)
-                          </label>
-                          <textarea
-                            value={customInstructionsByJobId[String(job.id)] || ""}
-                            onChange={(e) => setCustomInstructionsByJobId((prev) => ({ ...prev, [String(job.id)]: e.target.value }))}
-                            placeholder="e.g., 'Make it more formal', 'Add more technical details'..."
-                            className="w-full min-h-[60px] p-3 rounded-lg text-xs leading-relaxed resize-y"
-                            style={{
-                              border: "1px solid var(--jp-input-border)",
-                              backgroundColor: "var(--jp-input-bg)",
-                              color: "var(--jp-input-fg)",
-                            }}
-                          />
-                        </div>
-                        <button
-                          onClick={async () => {
-                            const jobId = String(job.id);
-                            const version = selectedCoverLetterVersion[jobId] || "long";
-                            const instructions = customInstructionsByJobId[jobId]?.trim();
-                            
-                            if (!instructions) {
-                              setCoverLetterErrorByJobId((prev) => ({
-                                ...prev,
-                                [jobId]: "Please enter custom instructions first.",
-                              }));
-                              return;
-                            }
-                            
-                            setRegeneratingVersion((prev) => ({ ...prev, [jobId]: version }));
-                            setCoverLetterErrorByJobId((prev) => ({ ...prev, [jobId]: "" }));
-                            
-                            try {
-                              const candidate = await readCandidateProfile();
-                              // Get the current cover letter text for the selected version
-                              const currentText =
-                                version === "creative"
-                                  ? coverLetterCreativeByJobId[jobId] || coverLetterByJobId[jobId]
-                                  : version === "very_short"
-                                  ? coverLetterVeryShortByJobId[jobId] || coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
-                                  : version === "short"
-                                  ? coverLetterShortByJobId[jobId] || coverLetterByJobId[jobId]
-                                  : coverLetterByJobId[jobId];
-                              
-                              const res = await fetch("/api/cover-letter", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  job: {
-                                    id: job.id,
-                                    title: job.title,
-                                    company: job.company,
-                                    location: job.location,
-                                    url: job.url,
-                                    description: job.description,
-                                  },
-                                  profile: parsedProfile,
-                                  candidate,
-                                  preferredLanguage: "auto",
-                                  customInstructions: instructions,
-                                  regenerateVersion: version,
-                                  currentCoverLetter: currentText,
-                                }),
-                              });
-                              
-                              const data = await res.json().catch(() => ({}));
-                              if (!res.ok) {
-                                throw new Error(data?.error || "Failed to regenerate cover letter");
-                              }
-                              
-                              // Update the specific version
-                              if (version === "creative" && data.coverLetterCreative) {
-                                setCoverLetterCreativeByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterCreative }));
-                              } else if (version === "very_short" && data.coverLetterVeryShort) {
-                                setCoverLetterVeryShortByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterVeryShort }));
-                              } else if (version === "short" && data.coverLetterShort) {
-                                setCoverLetterShortByJobId((prev) => ({ ...prev, [jobId]: data.coverLetterShort }));
-                              } else if (version === "long" && data.coverLetter) {
-                                setCoverLetterByJobId((prev) => ({ ...prev, [jobId]: data.coverLetter }));
-                              }
-                              
-                              // Update cache
-                              const cache = readCoverLetterCache();
-                              const cached = cache[jobId] || { text: "", createdAt: new Date().toISOString(), lang: "auto" };
-                              const updatedCache: CoverLetterCache = {
-                                ...cache,
-                                [jobId]: {
-                                  ...cached,
-                                  text: version === "long" ? (data.coverLetter || cached.text) : cached.text,
-                                  textShort: version === "short" ? (data.coverLetterShort || cached.textShort) : cached.textShort,
-                                  textVeryShort: version === "very_short" ? (data.coverLetterVeryShort || cached.textVeryShort) : cached.textVeryShort,
-                                  textCreative: version === "creative" ? (data.coverLetterCreative || cached.textCreative) : cached.textCreative,
-                                },
-                              };
-                              writeCoverLetterCache(updatedCache);
-                            } catch (e: any) {
-                              setCoverLetterErrorByJobId((prev) => ({
-                                ...prev,
-                                [jobId]: e?.message || "Failed to regenerate cover letter",
-                              }));
-                            } finally {
-                              setRegeneratingVersion((prev) => ({ ...prev, [jobId]: null }));
-                            }
-                          }}
-                          disabled={!customInstructionsByJobId[String(job.id)]?.trim() || !!regeneratingVersion[String(job.id)]}
-                          style={{
-                            padding: "8px 14px",
-                            borderRadius: 10,
-                            border: "1px solid var(--jp-panel-border)",
-                            background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
-                            color: "white",
-                            fontWeight: 700,
-                            cursor: customInstructionsByJobId[String(job.id)]?.trim() && !regeneratingVersion[String(job.id)] ? "pointer" : "not-allowed",
-                            opacity: customInstructionsByJobId[String(job.id)]?.trim() && !regeneratingVersion[String(job.id)] ? 1 : 0.5,
-                            fontSize: 12,
-                          }}
-                        >
-                          {regeneratingVersion[String(job.id)] ? "Regenerating..." : "Regenerate with custom instructions"}
-                        </button>
+                      {/* Enhancement Section */}
+                      <div className="mt-3">
+                        {clEnhanceMode === String(job.id) ? (
+                          <div className="rounded-lg p-3" style={{ border: "1px solid rgba(59,130,246,0.3)", background: "rgba(59,130,246,0.06)" }}>
+                            <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--jp-panel-fg)", opacity: 0.7 }}>
+                              How would you like to enhance this letter?
+                            </label>
+                            <textarea
+                              value={clEnhanceInstructions[String(job.id)] || ""}
+                              onChange={(e) => setClEnhanceInstructions((prev) => ({ ...prev, [String(job.id)]: e.target.value }))}
+                              placeholder="e.g., 'Make it more formal', 'Emphasize leadership experience', 'Use a warmer tone'..."
+                              className="w-full min-h-[60px] p-3 rounded-lg text-xs leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+                              style={{
+                                border: "1px solid rgba(59,130,246,0.3)",
+                                backgroundColor: "rgba(59,130,246,0.04)",
+                                color: "var(--jp-input-fg)",
+                              }}
+                            />
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => {
+                                  if (clEnhanceInstructions[String(job.id)]?.trim()) {
+                                    onEnhanceCoverLetter(job, clEnhanceInstructions[String(job.id)]);
+                                  }
+                                }}
+                                disabled={!clEnhanceInstructions[String(job.id)]?.trim() || coverLetterLoadingId === String(job.id)}
+                                style={{
+                                  padding: "6px 14px",
+                                  borderRadius: 8,
+                                  border: "none",
+                                  background: "linear-gradient(180deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))",
+                                  color: "white",
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                  cursor: clEnhanceInstructions[String(job.id)]?.trim() && coverLetterLoadingId !== String(job.id) ? "pointer" : "not-allowed",
+                                  opacity: clEnhanceInstructions[String(job.id)]?.trim() && coverLetterLoadingId !== String(job.id) ? 1 : 0.5,
+                                }}
+                                className="flex items-center gap-2 transition-all hover:opacity-90"
+                              >
+                                {coverLetterLoadingId === String(job.id) ? (
+                                  <><Loader2 className="h-3 w-3 animate-spin" /> Enhancing...</>
+                                ) : (
+                                  <><Sparkles className="h-3 w-3" /> Enhance letter</>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => setClEnhanceMode(null)}
+                                className="rounded-lg px-3 py-1 text-xs font-medium transition-colors hover:opacity-80"
+                                style={{ color: "var(--jp-panel-fg)", opacity: 0.6 }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setClEnhanceMode(String(job.id))}
+                            className="flex items-center gap-1.5 text-xs font-medium transition-colors hover:opacity-80"
+                            style={{ color: "var(--jp-panel-fg)", opacity: 0.5 }}
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            How to enhance this letter
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2738,25 +3150,158 @@ function HomePageInner() {
                               </button>
                             </div>
                           </div>
-                          <textarea
-                            value={
-                              (selectedCoverLetterVersion[id] || "long") === "creative"
+                          {/* Paragraph-based display with refresh buttons */}
+                          {(() => {
+                            const currentVersion = selectedCoverLetterVersion[id] || "long";
+                            const displayText =
+                              currentVersion === "creative"
                                 ? coverLetterCreativeByJobId[id] || text
-                                : (selectedCoverLetterVersion[id] || "long") === "very_short"
+                                : currentVersion === "very_short"
                                 ? coverLetterVeryShortByJobId[id] || coverLetterShortByJobId[id] || text
-                                : (selectedCoverLetterVersion[id] || "long") === "short"
+                                : currentVersion === "short"
                                 ? coverLetterShortByJobId[id] || text
-                                : text
-                            }
-                            readOnly
-                            className="w-full mt-4 p-5 rounded-xl text-base leading-relaxed resize-y"
-                            style={{
-                              minHeight: 350,
-                              border: "1px solid var(--border)",
-                              backgroundColor: "var(--secondary)",
-                              color: "var(--foreground)",
-                            }}
-                          />
+                                : text;
+
+                            const allParagraphs = displayText.split(/\n\s*\n/);
+
+                            const isContentParagraph = (t: string, idx: number, total: number): boolean => {
+                              const trimmed = t.trim();
+                              const lines = trimmed.split("\n").map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+                              const wordCount = trimmed.split(/\s+/).length;
+                              if (wordCount < 15) return false;
+                              if (idx === 0) return false;
+                              if (idx >= total - 1 && wordCount < 25) return false;
+                              if (idx >= total - 2 && wordCount < 10) return false;
+                              if (/^\[?date\]?$/i.test(trimmed)) return false;
+                              if (/^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}$/.test(trimmed)) return false;
+                              if (/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d/i.test(trimmed)) return false;
+                              if (/^(subject|object|oggetto|objet)\s*:/i.test(trimmed)) return false;
+                              if (/^(dear|gentil[ei]|cher|sehr geehrt)/i.test(trimmed) && wordCount < 10) return false;
+                              if (/^(sincerely|regards|best regards|kind regards|cordiali saluti|cordialement|mit freundlichen)/i.test(trimmed) && wordCount < 10) return false;
+                              if (lines.length > 1 && lines.filter((l: string) => l.length < 45).length / lines.length > 0.7) return false;
+                              return true;
+                            };
+
+                            return (
+                              <div className="mt-4 rounded-xl" style={{ border: "1px solid var(--border)", backgroundColor: "var(--secondary)" }}>
+                                <div className="px-5 py-4 text-sm leading-relaxed space-y-0">
+                                  {allParagraphs.map((paragraph: string, pIdx: number) => {
+                                    const paraLoadingKey = `${id}::${pIdx}`;
+                                    const isParaLoading = clParagraphLoading === paraLoadingKey;
+                                    const isContent = isContentParagraph(paragraph, pIdx, allParagraphs.length);
+
+                                    return (
+                                      <div
+                                        key={pIdx}
+                                        className="flex gap-3 items-start"
+                                        style={{
+                                          paddingTop: pIdx === 0 ? 0 : 12,
+                                          paddingBottom: pIdx < allParagraphs.length - 1 ? 12 : 0,
+                                          borderBottom: pIdx < allParagraphs.length - 1 && isContent ? "1px dashed var(--border)" : "none",
+                                        }}
+                                      >
+                                        <div
+                                          className="flex-1 whitespace-pre-wrap transition-opacity"
+                                          style={{
+                                            color: "var(--foreground)",
+                                            opacity: isParaLoading ? 0.35 : 1,
+                                          }}
+                                        >
+                                          {paragraph}
+                                          {isParaLoading && (
+                                            <span className="inline-flex items-center ml-2">
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--primary)" }} />
+                                            </span>
+                                          )}
+                                        </div>
+                                        {isContent && (
+                                          <div className="flex-shrink-0 pt-0.5">
+                                            {!isParaLoading && !clParagraphLoading ? (
+                                              <button
+                                                onClick={() => onRefreshCoverLetterParagraph(id, pIdx)}
+                                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors hover:opacity-80"
+                                                style={{
+                                                  border: "1px solid var(--border)",
+                                                  color: "var(--muted-foreground)",
+                                                }}
+                                                title="Refresh this paragraph"
+                                              >
+                                                <RefreshCw className="h-3 w-3" />
+                                              </button>
+                                            ) : isParaLoading ? (
+                                              <div
+                                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
+                                                style={{ border: "1px solid transparent" }}
+                                              >
+                                                <Loader2 className="h-3 w-3 animate-spin" style={{ color: "var(--primary)" }} />
+                                              </div>
+                                            ) : (
+                                              <div className="w-7" />
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Enhance section */}
+                          <div className="mt-4">
+                            {clEnhanceMode === id ? (
+                              <div className="rounded-xl p-4" style={{ border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.06)" }}>
+                                <label className="block text-xs font-semibold mb-2" style={{ color: "var(--muted-foreground)" }}>
+                                  How would you like to enhance this letter?
+                                </label>
+                                <textarea
+                                  value={clEnhanceInstructions[id] || ""}
+                                  onChange={(e) => setClEnhanceInstructions((prev) => ({ ...prev, [id]: e.target.value }))}
+                                  placeholder="E.g. 'Make the opening more personal', 'Emphasize leadership experience', 'Use a warmer tone'..."
+                                  className="w-full h-20 p-3 rounded-lg text-sm resize-none transition-all focus:outline-none focus:ring-1 focus:ring-purple-500/30"
+                                  style={{
+                                    border: "1px solid rgba(168,85,247,0.3)",
+                                    backgroundColor: "rgba(168,85,247,0.04)",
+                                    color: "var(--foreground)",
+                                  }}
+                                />
+                                <div className="flex gap-2 mt-3">
+                                  <button
+                                    onClick={() => {
+                                      if (clEnhanceInstructions[id]?.trim()) {
+                                        onEnhanceCoverLetter(jobForDocx, clEnhanceInstructions[id]);
+                                      }
+                                    }}
+                                    disabled={!clEnhanceInstructions[id]?.trim() || coverLetterLoadingId === id}
+                                    className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 gradient-primary"
+                                  >
+                                    {coverLetterLoadingId === id ? (
+                                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Enhancing...</>
+                                    ) : (
+                                      <><Sparkles className="h-3.5 w-3.5" /> Enhance letter</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => setClEnhanceMode(null)}
+                                    className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-80"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setClEnhanceMode(id)}
+                                className="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80"
+                                style={{ color: "var(--muted-foreground)" }}
+                              >
+                                <Sparkles className="h-3.5 w-3.5" />
+                                How to enhance this letter
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2947,6 +3492,463 @@ function HomePageInner() {
                       <p className="text-base font-semibold" style={{ color: "var(--foreground)" }}>Ready to research</p>
                       <p className="text-sm mt-1 max-w-md" style={{ color: "var(--muted-foreground)" }}>
                         Enter any company name above to get a comprehensive report including financials, culture, leadership, market position, and what it&apos;s like to work there.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Sector Analysis Tab */}
+          {activeTab === "sector" && (
+            <>
+              {/* Header */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: "var(--foreground)" }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center gradient-primary">
+                    <Globe className="h-5 w-5 text-white" />
+                  </div>
+                  Sector Analysis
+                </h1>
+                <p className="mt-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  Find companies by sector and location to discover targets for spontaneous applications
+                </p>
+              </div>
+
+              {/* Search Form */}
+              <div className="rounded-xl p-6 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Sector</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Fintech, Software, Automotive..."
+                      value={sectorSector}
+                      onChange={(e) => setSectorSector(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !sectorLoading) onSectorAnalysis(); }}
+                      className="w-full rounded-xl border pl-3 pr-4 py-2.5 text-sm outline-none transition-colors focus:ring-2 focus:ring-purple-500/30"
+                      style={{ background: "var(--secondary)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Country</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Italy, Germany, UK..."
+                      value={sectorCountry}
+                      onChange={(e) => setSectorCountry(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !sectorLoading) onSectorAnalysis(); }}
+                      className="w-full rounded-xl border pl-3 pr-4 py-2.5 text-sm outline-none transition-colors focus:ring-2 focus:ring-purple-500/30"
+                      style={{ background: "var(--secondary)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>City (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Milan, Berlin, London..."
+                      value={sectorCity}
+                      onChange={(e) => setSectorCity(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !sectorLoading) onSectorAnalysis(); }}
+                      className="w-full rounded-xl border pl-3 pr-4 py-2.5 text-sm outline-none transition-colors focus:ring-2 focus:ring-purple-500/30"
+                      style={{ background: "var(--secondary)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={() => onSectorAnalysis()}
+                      disabled={sectorLoading || !sectorSector.trim() || !sectorCountry.trim()}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 gradient-primary"
+                    >
+                      {sectorLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {sectorLoading ? "Searching..." : "Find companies"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Searches */}
+              {sectorRecentSearches.length > 0 && !sectorLoading && (
+                <div className="rounded-xl p-4 mb-6" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <h3 className="text-xs font-semibold mb-2.5 uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Recent searches</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {sectorRecentSearches.map((entry) => {
+                      const key = sectorCacheKey(entry.sector, entry.country, entry.city);
+                      const currentKey = sectorCacheKey(sectorSector.trim(), sectorCountry.trim(), sectorCity.trim());
+                      const isActive = sectorCompanies.length > 0 && key === currentKey;
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => onSectorAnalysis(entry.sector, entry.country, entry.city)}
+                          className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all cursor-pointer group ${
+                            isActive ? "gradient-primary text-white shadow-md" : "hover:opacity-80"
+                          }`}
+                          style={isActive ? {} : { background: "var(--secondary)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                          <span>{entry.label}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Remove from cache and recents
+                              const cache = readSectorCache();
+                              delete cache[key];
+                              writeSectorCache(cache);
+                              setSectorRecentSearches((prev) => prev.filter((s) => sectorCacheKey(s.sector, s.country, s.city) !== key));
+                              if (isActive) { setSectorCompanies([]); setSectorSector(""); setSectorCountry(""); setSectorCity(""); }
+                            }}
+                            className={`ml-1 transition-opacity ${isActive ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-60 hover:opacity-100"}`}
+                            style={{ color: isActive ? "white" : "var(--muted-foreground)" }}
+                            title="Remove"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Loading State */}
+              {sectorLoading && (
+                <div className="rounded-xl p-12 text-center" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl gradient-primary animate-pulse">
+                      <Globe className="h-8 w-8 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
+                        Searching companies...
+                      </p>
+                      <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
+                        This may take 10-20 seconds
+                      </p>
+                    </div>
+                    <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--primary)" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Error State */}
+              {sectorError && !sectorLoading && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-6 mb-6">
+                  <p className="text-sm text-red-400">{sectorError}</p>
+                </div>
+              )}
+
+              {/* Results */}
+              {sectorCompanies.length > 0 && !sectorLoading && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+                    {sectorCompanies.length} companies found
+                  </h3>
+                  <div className="space-y-3">
+                    {sectorCompanies.map((company, idx) => {
+                      const companyKey = company.name;
+                      const letter = sectorLetterByCompany[companyKey];
+                      const isLetterLoading = sectorLetterLoadingCompany === companyKey;
+                      const letterError = sectorLetterErrorByCompany[companyKey];
+                      const isLetterExpanded = sectorLetterExpandedCompany === companyKey;
+                      const isCopied = sectorLetterCopied === companyKey;
+
+                      return (
+                        <div
+                          key={`${company.name}-${idx}`}
+                          className="rounded-xl p-5 transition-all hover:border-purple-500/30"
+                          style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-base" style={{ color: "var(--foreground)" }}>{company.name}</h4>
+                              {company.headquarters && (
+                                <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
+                                  <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                                  HQ: {company.headquarters}
+                                </p>
+                              )}
+                              {company.offices.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {company.offices.map((office, i) => (
+                                    <span
+                                      key={i}
+                                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs"
+                                      style={{ background: "var(--secondary)", color: "var(--foreground)" }}
+                                    >
+                                      <MapPin className="h-3 w-3" />
+                                      {office}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                              {company.website && (
+                                <a
+                                  href={company.website.startsWith("http") ? company.website : `https://${company.website}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
+                                  style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Website
+                                </a>
+                              )}
+                              {company.careersUrl && (
+                                <a
+                                  href={company.careersUrl.startsWith("http") ? company.careersUrl : `https://${company.careersUrl}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 gradient-primary"
+                                >
+                                  <Briefcase className="h-3.5 w-3.5" />
+                                  Careers
+                                </a>
+                              )}
+                              <button
+                                onClick={() => onGenerateSpontaneousLetter(company)}
+                                disabled={isLetterLoading}
+                                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:opacity-90 disabled:opacity-50"
+                                style={{
+                                  border: letter ? "1px solid rgba(139, 92, 246, 0.5)" : "1px solid var(--border)",
+                                  background: letter ? "rgba(139, 92, 246, 0.1)" : "transparent",
+                                  color: letter ? "#8b5cf6" : "var(--foreground)",
+                                }}
+                              >
+                                {isLetterLoading ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <FileText className="h-3.5 w-3.5" />
+                                )}
+                                {isLetterLoading ? "Generating..." : letter ? (isLetterExpanded ? "Hide Letter" : "Show Letter") : "Generate Letter"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Letter error */}
+                          {letterError && !isLetterLoading && (
+                            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2">
+                              <p className="text-xs text-red-400">{letterError}</p>
+                            </div>
+                          )}
+
+                          {/* Generated letter display */}
+                          {letter && isLetterExpanded && (
+                            <div className="mt-4 rounded-xl" style={{ border: "1px solid var(--border)", background: "var(--secondary)" }}>
+                              <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+                                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
+                                  Spontaneous Application Letter
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => onCopySectorLetter(companyKey)}
+                                    className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-colors"
+                                    style={{
+                                      border: "1px solid var(--border)",
+                                      background: isCopied ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                                      color: isCopied ? "#22c55e" : "var(--foreground)",
+                                    }}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    {isCopied ? "Copied!" : "Copy"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      // Regenerate: clear cached letter and re-trigger
+                                      setSectorLetterByCompany((prev) => {
+                                        const next = { ...prev };
+                                        delete next[companyKey];
+                                        return next;
+                                      });
+                                      setSectorLetterExpandedCompany(null);
+                                      // Small delay to let state update, then trigger generation
+                                      setTimeout(() => onGenerateSpontaneousLetter(company), 50);
+                                    }}
+                                    className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-colors"
+                                    style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                    Regenerate
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="px-5 py-4 text-sm leading-relaxed space-y-0">
+                                {(() => {
+                                  const allParagraphs = letter.split(/\n\s*\n/);
+
+                                  // Detect which paragraphs are "real content" vs structural (header, date, subject, salutation, signature)
+                                  const isContentParagraph = (text: string, idx: number, total: number): boolean => {
+                                    const trimmed = text.trim();
+                                    const lines = trimmed.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+                                    const wordCount = trimmed.split(/\s+/).length;
+
+                                    // Too short to be a real paragraph (date lines, subject lines, salutations, signatures)
+                                    if (wordCount < 15) return false;
+
+                                    // First block is almost always the contact header
+                                    if (idx === 0) return false;
+
+                                    // Last 1-2 blocks are usually sign-off + signature
+                                    if (idx >= total - 1 && wordCount < 25) return false;
+                                    if (idx >= total - 2 && wordCount < 10) return false;
+
+                                    // Contains date patterns like [Date], January 2025, 12/02/2026
+                                    if (/^\[?date\]?$/i.test(trimmed)) return false;
+                                    if (/^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}$/.test(trimmed)) return false;
+                                    if (/^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d/i.test(trimmed)) return false;
+
+                                    // Subject lines
+                                    if (/^(subject|object|oggetto|objet)\s*:/i.test(trimmed)) return false;
+
+                                    // Salutations
+                                    if (/^(dear|gentil[ei]|cher|sehr geehrt)/i.test(trimmed) && wordCount < 10) return false;
+
+                                    // Sign-offs
+                                    if (/^(sincerely|regards|best regards|kind regards|cordiali saluti|cordialement|mit freundlichen)/i.test(trimmed) && wordCount < 10) return false;
+
+                                    // Mostly short lines (contact info, address blocks)
+                                    if (lines.length > 1 && lines.filter(l => l.length < 45).length / lines.length > 0.7) return false;
+
+                                    return true;
+                                  };
+
+                                  return allParagraphs.map((paragraph, pIdx) => {
+                                    const paraLoadingKey = `${companyKey}::${pIdx}`;
+                                    const isParaLoading = sectorParagraphLoading === paraLoadingKey;
+                                    const isContent = isContentParagraph(paragraph, pIdx, allParagraphs.length);
+
+                                    return (
+                                      <div
+                                        key={pIdx}
+                                        className={`flex gap-3 items-start ${isContent ? "" : ""}`}
+                                        style={{
+                                          paddingTop: pIdx === 0 ? 0 : 12,
+                                          paddingBottom: pIdx < allParagraphs.length - 1 ? 12 : 0,
+                                          borderBottom: pIdx < allParagraphs.length - 1 && isContent ? "1px dashed var(--border)" : "none",
+                                        }}
+                                      >
+                                        <div
+                                          className="flex-1 whitespace-pre-wrap transition-opacity"
+                                          style={{
+                                            color: "var(--foreground)",
+                                            opacity: isParaLoading ? 0.35 : 1,
+                                          }}
+                                        >
+                                          {paragraph}
+                                          {isParaLoading && (
+                                            <span className="inline-flex items-center ml-2">
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--primary)" }} />
+                                            </span>
+                                          )}
+                                        </div>
+                                        {isContent && (
+                                          <div className="flex-shrink-0 pt-0.5">
+                                            {!isParaLoading && !sectorParagraphLoading ? (
+                                              <button
+                                                onClick={() => onRefreshSectorParagraph(company, pIdx)}
+                                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors hover:opacity-80"
+                                                style={{
+                                                  border: "1px solid var(--border)",
+                                                  color: "var(--muted-foreground)",
+                                                }}
+                                                title="Refresh this paragraph"
+                                              >
+                                                <RefreshCw className="h-3 w-3" />
+                                              </button>
+                                            ) : isParaLoading ? (
+                                              <div
+                                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
+                                                style={{ border: "1px solid transparent" }}
+                                              >
+                                                <Loader2 className="h-3 w-3 animate-spin" style={{ color: "var(--primary)" }} />
+                                              </div>
+                                            ) : (
+                                              <div className="w-7" />
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+
+                              {/* Enhance section */}
+                              <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
+                                {sectorLetterEnhanceMode === companyKey ? (
+                                  <div className="space-y-3">
+                                    <label className="block text-xs font-semibold" style={{ color: "var(--muted-foreground)" }}>
+                                      How would you like to improve this letter?
+                                    </label>
+                                    <textarea
+                                      value={sectorLetterInstructions[companyKey] || ""}
+                                      onChange={(e) => setSectorLetterInstructions((prev) => ({ ...prev, [companyKey]: e.target.value }))}
+                                      placeholder="e.g. Make it shorter, focus more on my leadership experience, mention my MBA, use a warmer tone..."
+                                      rows={3}
+                                      className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none transition-colors focus:ring-2 focus:ring-purple-500/30"
+                                      style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => {
+                                          const instructions = (sectorLetterInstructions[companyKey] || "").trim();
+                                          if (!instructions) return;
+                                          // Clear current letter so callback doesn't just toggle
+                                          setSectorLetterByCompany((prev) => {
+                                            const next = { ...prev };
+                                            delete next[companyKey];
+                                            return next;
+                                          });
+                                          onGenerateSpontaneousLetter(company, instructions);
+                                        }}
+                                        disabled={!(sectorLetterInstructions[companyKey] || "").trim() || isLetterLoading}
+                                        className="flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 gradient-primary"
+                                      >
+                                        {isLetterLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                                        {isLetterLoading ? "Enhancing..." : "Enhance letter"}
+                                      </button>
+                                      <button
+                                        onClick={() => setSectorLetterEnhanceMode(null)}
+                                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
+                                        style={{ color: "var(--muted-foreground)" }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setSectorLetterEnhanceMode(companyKey)}
+                                    className="flex items-center gap-1.5 text-xs font-medium transition-colors hover:opacity-80"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                  >
+                                    <Settings className="h-3.5 w-3.5" />
+                                    How to enhance this letter
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!sectorCompanies.length && !sectorLoading && !sectorError && (
+                <div className="rounded-xl p-12 text-center" style={{ border: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "var(--secondary)" }}>
+                      <Globe className="h-8 w-8" style={{ color: "var(--muted-foreground)" }} />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold" style={{ color: "var(--foreground)" }}>Sector Analysis</p>
+                      <p className="text-sm mt-1 max-w-md" style={{ color: "var(--muted-foreground)" }}>
+                        Enter a sector, country, and optionally a city to discover companies with offices in the area. Ideal for spontaneous applications.
                       </p>
                     </div>
                   </div>

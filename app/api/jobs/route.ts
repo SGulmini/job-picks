@@ -254,23 +254,43 @@ async function fetchJobsWithFallback(
   const collected: any[] = [];
   const seen = new Set<string>();
 
-  const jobKey = (j: any): string => {
-    return (
-      j?.id?.toString() ||
-      j?.redirect_url ||
-      j?.url ||
-      `${j?.title || ""}::${j?.company?.display_name || ""}::${j?.location?.display_name || ""}`
-    );
+  // Retrieval-level dedup: use multiple keys per job to catch duplicates
+  // that appear with different IDs but same title+company
+  const TITLE_NOISE_RE = /\s*[\(\[][^)\]]*[\)\]]\s*/g;
+  const SUFFIX_RE = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ag|ltd\.?|llc|inc\.?|corp\.?|co\.?|plc|limited|group|holding|srl|spa)\b/gi;
+
+  const descFP = (desc: string): string => {
+    if (!desc || desc.length < 80) return "";
+    return desc.replace(/<[^>]*>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 200);
+  };
+
+  const retrievalKeys = (j: any): string[] => {
+    const keys: string[] = [];
+    const id = j?.id?.toString?.();
+    if (id) keys.push("id:" + id);
+    const url = j?.redirect_url || j?.url;
+    if (url) {
+      try { const u = new URL(url); keys.push("url:" + u.origin + u.pathname); } catch { keys.push("url:" + url); }
+    }
+    const title = (j?.title || "").toLowerCase().replace(TITLE_NOISE_RE, " ").replace(/\s+/g, " ").trim();
+    const company = (j?.company?.display_name || "").toLowerCase().replace(SUFFIX_RE, "").replace(/[^a-z0-9]/g, "").trim();
+    if (title && company) keys.push("tc:" + title + "::" + company);
+    // Description fingerprint: same company + same description = duplicate
+    const desc = j?.description || "";
+    const fp = descFP(desc);
+    if (company && fp.length >= 60) keys.push("desc:" + company + "::" + fp);
+    if (fp.length >= 150) keys.push("desconly:" + fp);
+    return keys;
   };
 
   const addResults = (results: any[]) => {
     for (const j of results) {
-      const k = jobKey(j);
-      if (!k) continue;
+      const keys = retrievalKeys(j);
+      if (keys.length === 0) continue;
       const rawId = j?.id?.toString?.() ? j.id.toString() : null;
       if (rawId && excludeIds && excludeIds.has(rawId)) continue;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      if (keys.some(k => seen.has(k))) continue;
+      keys.forEach(k => seen.add(k));
       collected.push(j);
       if (collected.length >= desiredCount) return;
     }
@@ -458,22 +478,41 @@ async function fetchJobsFromMultipleProviders(
 ): Promise<any[]> {
   const collected: any[] = [];
   const seen = new Set<string>();
-  
-  const jobKey = (j: any): string => {
-    return (
-      j?.id?.toString() ||
-      j?.redirect_url ||
-      j?.url ||
-      `${j?.title || ""}::${j?.company?.display_name || ""}::${j?.location?.display_name || ""}`
-    );
+
+  // Multi-provider dedup: use multiple keys per job
+  const TITLE_NOISE_RE = /\s*[\(\[][^)\]]*[\)\]]\s*/g;
+  const SUFFIX_RE = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|gmbh|ag|ltd\.?|llc|inc\.?|corp\.?|co\.?|plc|limited|group|holding|srl|spa)\b/gi;
+
+  const mpDescFP = (desc: string): string => {
+    if (!desc || desc.length < 80) return "";
+    return desc.replace(/<[^>]*>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 200);
+  };
+
+  const mpKeys = (j: any): string[] => {
+    const keys: string[] = [];
+    const id = j?.id?.toString?.();
+    if (id) keys.push("id:" + id);
+    const url = j?.redirect_url || j?.url;
+    if (url) {
+      try { const u = new URL(url); keys.push("url:" + u.origin + u.pathname); } catch { keys.push("url:" + url); }
+    }
+    const title = (j?.title || "").toLowerCase().replace(TITLE_NOISE_RE, " ").replace(/\s+/g, " ").trim();
+    const company = (j?.company?.display_name || "").toLowerCase().replace(SUFFIX_RE, "").replace(/[^a-z0-9]/gi, "").trim();
+    if (title && company) keys.push("tc:" + title + "::" + company);
+    // Description fingerprint: same company + same description = duplicate
+    const desc = j?.description || "";
+    const fp = mpDescFP(desc);
+    if (company && fp.length >= 60) keys.push("desc:" + company + "::" + fp);
+    if (fp.length >= 150) keys.push("desconly:" + fp);
+    return keys;
   };
   
-  const addResults = (results: any[], provider: string) => {
+  const addResults = (results: any[], _provider: string) => {
     for (const j of results) {
-      const k = jobKey(j);
-      if (!k) continue;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      const keys = mpKeys(j);
+      if (keys.length === 0) continue;
+      if (keys.some(k => seen.has(k))) continue;
+      keys.forEach(k => seen.add(k));
       collected.push(j);
       if (collected.length >= desiredCount) return;
     }
@@ -530,14 +569,11 @@ async function fetchJobsFromMultipleProviders(
           normalizeJSearchJob(job, idx)
         );
         
-        // Filter excluded IDs and duplicates
+        // Filter excluded IDs (dedup is handled inside addResults)
         const filtered = normalized.filter((j: any) => {
           const id = j?.id?.toString?.() ? j.id.toString() : null;
           if (excludeIds && id && excludeIds.has(id)) return false;
-          
-          // Check if already seen
-          const k = jobKey(j);
-          return !seen.has(k);
+          return true;
         });
         
         addResults(filtered, "jsearch");
@@ -1000,46 +1036,117 @@ export async function GET(request: Request) {
     // - premium: max 10 picks/day
     const maxJobs = subscriptionTier === "premium" ? 10 : 3;
 
-    // Helper function to create a unique key for deduplication
-    // Uses URL if available, otherwise title+company+location
-    const getJobUniqueKey = (job: JobWithScore): string => {
+    // ====================================================================
+    // ROBUST DEDUPLICATION (5 layers)
+    // ====================================================================
+    // Jobs can appear as duplicates in several ways:
+    //  1. Same Adzuna ID from different query expansions (caught by ID)
+    //  2. Same URL with different query params (caught by normalized URL)
+    //  3. Same role at same company posted multiple times with different IDs
+    //     (caught by normalized title+company fingerprint)
+    //  4. Slight title variations like "Software Engineer" vs
+    //     "Software Engineer (m/f/d)" (caught by stripped title)
+    //  5. Same company, different title but identical/near-identical description
+    //     (caught by company + description fingerprint)
+    // We reject a job if ANY key matches a previously seen key.
+
+    const COMPANY_SUFFIXES = /\b(s\.?r\.?l\.?|s\.?p\.?a\.?|s\.?r\.?l\.?s\.?|gmbh|ag|ltd\.?|llc|inc\.?|corp\.?|co\.?|plc|limited|group|holding|srl|spa)\b/gi;
+    const TITLE_NOISE = /\s*[\(\[][^)\]]*[\)\]]\s*/g; // remove (m/f/d), [remote], etc.
+
+    const normalizeCompanyName = (c: string): string =>
+      c.toLowerCase().replace(COMPANY_SUFFIXES, "").replace(/[^a-z0-9]/g, "").trim();
+
+    const normalizeTitleForDedup = (t: string): string =>
+      t.toLowerCase().replace(TITLE_NOISE, " ").replace(/[-–—]/g, " ").replace(/\s+/g, " ").trim();
+
+    // Create a fingerprint from the description to catch same-company reposts.
+    // We strip HTML, normalize whitespace, then take the first 200 alphanumeric
+    // characters. This is enough to uniquely identify a posting even when the
+    // title or location differs slightly.
+    const descriptionFingerprint = (desc: string): string => {
+      if (!desc || desc.length < 80) return ""; // too short to be meaningful
+      const stripped = desc
+        .replace(/<[^>]*>/g, " ")  // strip HTML tags
+        .replace(/&[a-z]+;/gi, " ") // strip HTML entities
+        .replace(/[^a-z0-9]/gi, "") // only alphanumeric
+        .toLowerCase();
+      // take first 200 chars — the opening of a description is the most
+      // distinctive part (requirements, intro paragraph, etc.)
+      return stripped.slice(0, 200);
+    };
+
+    const getJobDeduKeys = (job: JobWithScore): string[] => {
+      const keys: string[] = [];
+
+      // Layer 1: normalized URL (strip query & fragment)
       if (job.url && job.url !== "#") {
-        // Normalize URL by removing query params and fragments for better matching
         try {
-          const url = new URL(job.url);
-          return url.origin + url.pathname;
+          const u = new URL(job.url);
+          keys.push("url:" + u.origin + u.pathname);
         } catch {
-          // If URL parsing fails, use the full URL
-          return job.url;
+          keys.push("url:" + job.url);
         }
       }
-      // Fallback to title+company+location combination
+
+      // Layer 2: exact title + company + location
       const title = (job.title || "").toLowerCase().trim();
       const company = (job.company || "").toLowerCase().trim();
       const location = (job.location || "").toLowerCase().trim();
-      return `${title}::${company}::${location}`;
+      keys.push(`exact:${title}::${company}::${location}`);
+
+      // Layer 3: fuzzy title + company (handles parenthetical variations,
+      // company suffixes like LLC/SRL/GmbH, and location differences)
+      const fuzzyTitle = normalizeTitleForDedup(job.title || "");
+      const fuzzyCompany = normalizeCompanyName(job.company || "");
+      if (fuzzyTitle && fuzzyCompany) {
+        keys.push(`fuzzy:${fuzzyTitle}::${fuzzyCompany}`);
+      }
+
+      // Layer 4: company + description fingerprint
+      // Catches the case where the same company posts the same role with
+      // a different title or in a different city but reuses the same description.
+      if (fuzzyCompany) {
+        const descFP = descriptionFingerprint(job.description || "");
+        if (descFP.length >= 60) { // only if we got a meaningful fingerprint
+          keys.push(`desc:${fuzzyCompany}::${descFP}`);
+        }
+      }
+
+      // Layer 5: description-only fingerprint (catches reposts by recruitment
+      // agencies that copy-paste the same description under different company names)
+      {
+        const descFP = descriptionFingerprint(job.description || "");
+        if (descFP.length >= 150) { // high threshold to avoid false positives
+          keys.push(`desconly:${descFP}`);
+        }
+      }
+
+      return keys;
     };
 
     // For both tiers, take the best from strict first, then fill from relaxed if needed.
-    // Use robust deduplication to prevent same job appearing multiple times
+    // Use robust multi-layer deduplication to prevent same job appearing multiple times.
     const picked: JobWithScore[] = [];
     const seenKeys = new Set<string>();
+
+    const tryPick = (j: JobWithScore): boolean => {
+      const keys = getJobDeduKeys(j);
+      // If ANY key was already seen, this is a duplicate
+      if (keys.some(k => seenKeys.has(k))) return false;
+      keys.forEach(k => seenKeys.add(k));
+      picked.push(j);
+      return true;
+    };
     
     for (const j of sortedStrict) {
       if (picked.length >= maxJobs) break;
-      const key = getJobUniqueKey(j);
-      if (seenKeys.has(key)) continue; // Skip duplicates
-      seenKeys.add(key);
-      picked.push(j);
+      tryPick(j);
     }
     
     if (picked.length < maxJobs) {
       for (const j of relaxedCandidates) {
         if (picked.length >= maxJobs) break;
-        const key = getJobUniqueKey(j);
-        if (seenKeys.has(key)) continue; // Skip duplicates
-        seenKeys.add(key);
-        picked.push(j);
+        tryPick(j);
       }
     }
 
